@@ -1,4 +1,4 @@
-from random import randint, uniform
+from random import randint, uniform, choice
 from math import e as exp
 from inspect import currentframe
 from time import time
@@ -21,7 +21,7 @@ Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 ALIEN_ZONE_SIZE = 3 # k - k >= 1, need to determine the large value
 ALPHA = 0.02 # avoid alpha > 11 for 35x35
 FQ_THRESHOLD = 0.05
-INITIAL_BEEP_COUNT = 108
+INITIAL_BEEP_COUNT = 81
 
 LOG_NONE = 0
 LOG_INFO = 1
@@ -107,7 +107,7 @@ class Crew_Probs:
 
 
 class Cell:
-    def __init__(self, row, col, cell_type = OPEN_CELL,):
+    def __init__(self, row, col, cell_type = OPEN_CELL):
         self.cell_type = cell_type
         self.bot_distance = 0
         self.probs = Cell_Probs()
@@ -120,7 +120,7 @@ class Cell:
 class Ship:
     def __init__(self, size, log_level = LOG_INFO):
         self.size = size
-        self.grid = [[Cell(i, j) for j in range(size)] for i in range(size)]
+        self.grid = [[Cell(i, j, CLOSED_CELL) for j in range(size)] for i in range(size)]
         self.open_cells = []
         self.logger = Logger(log_level)
         self.isBeep = 0
@@ -140,26 +140,51 @@ class Ship:
             if 0 <= x_shift < self.size and 0 <= y_shift < self.size and (self.grid[x_shift][y_shift].cell_type & CLOSED_CELL):
                 count += 1
         return count
+    
+    def generate_grid(self):
+        self.assign_start_cell()
+        self.unblock_closed_cells()
+        self.unblock_dead_ends()
 
-    def modify_grid(self):
-        changed = False
+    def assign_start_cell(self):
+        random_row = randint(0, self.size - 1)
+        random_col = randint(0, self.size - 1)
+        self.grid[random_row][random_col].cell_type = OPEN_CELL
+
+    def unblock_closed_cells(self):
+        available_cells = self.cells_with_one_open_neighbor(CLOSED_CELL)
+        while available_cells:
+            closed_cell = choice(available_cells)
+            self.grid[closed_cell[0]][closed_cell[1]].cell_type = OPEN_CELL
+            available_cells = self.cells_with_one_open_neighbor(CLOSED_CELL)
+
+    def unblock_dead_ends(self):
+        dead_end_cells = self.cells_with_one_open_neighbor(OPEN_CELL)
+        half_len = len(dead_end_cells)/2
+
+        while half_len > 0:
+
+            dead_end_cells = self.cells_with_one_open_neighbor(OPEN_CELL)
+            half_len -= 1
+            # if len(dead_end_cells) == 0: continue
+            dead_end_cell = choice(dead_end_cells)
+            closed_neighbors = get_neighbors(
+                self.size, dead_end_cell, self.grid, CLOSED_CELL
+            )
+
+            random_cell = choice(closed_neighbors)
+            self.grid[random_cell[0]][random_cell[1]].cell_type = OPEN_CELL
+
+    def cells_with_one_open_neighbor(self, cell_type):
+        results = []
         for row in range(self.size):
             for col in range(self.size):
-                if (self.grid[row][col].cell_type & OPEN_CELL) and len(get_neighbors(self.size, (row, col), self.grid, CLOSED_CELL)) > 2:
-                    self.grid[row][col].cell_type = CLOSED_CELL
-                    changed = True
-        return changed
-
-    def mark_random_cell(self):
-        rows = cols = self.size
-        random_row = randint(0, rows - 1)
-        random_col = randint(0, cols - 1)
-        self.grid[random_row][random_col].cell_type = CLOSED_CELL
-
-    def generate_grid(self):
-        self.mark_random_cell()
-        while self.modify_grid():
-            pass
+                if ((self.grid[row][col].cell_type & cell_type) and
+                    len(get_neighbors(
+                        self.size, (row, col), self.grid, OPEN_CELL
+                    )) == 1):
+                    results.append((row, col))
+        return results
 
     def place_players(self):
         # self.bot = (0, 0)
@@ -354,6 +379,8 @@ class Bot_1(ParentBot):
         min_prob = 0 if (observed_fq - threshold < 0) else (observed_fq - threshold)
         max_prob = 1 if (observed_fq + threshold > 1) else (observed_fq + threshold)
         pred_crew_cells = []
+        all_probs = set()
+        pred_crew_cells_2 = [] #take first few cells (what is few??)
         is_recalc_cell_prob = False
 
         # reason for having 2 prob cells is because the cell with the highest prob can be the adjacent cell and this can be ignored if no beep was recieved
@@ -404,7 +431,11 @@ class Bot_1(ParentBot):
             is_removed = False
             # not good cause better to towards the cell with the prob of a crew in it???
             if (cell.probs.beep_given_crew >= min_prob and cell.probs.beep_given_crew <= max_prob):
-                pred_crew_cells.append(cell_cord) # move to all cells we have deemed worthy :p
+                # pred_crew_cells.append(cell_cord)
+                pred_crew_cells.append((cell_cord, cell.probs.crew_given_beep)) # move to all cells we have deemed worthy :p
+
+            if cell.probs.crew_given_beep not in all_probs:
+                all_probs.add(cell.probs.crew_given_beep)
 
             # if not (cell.probs.crew_prob):
             #     self.logger.print_cell_data(LOG_NONE, cell, self.curr_pos)
@@ -418,7 +449,15 @@ class Bot_1(ParentBot):
             self.logger.print_cell_data(LOG_DEBUG, cell, self.curr_pos)
 
         if self.recalc_pred_cells and not(is_move_bot):
-            self.pred_crew_cells = list(pred_crew_cells)
+            # self.pred_crew_cells = list(pred_crew_cells)
+            # pred_crew_cells = sorted(pred_crew_cells, key=lambda crew_prob : crew_prob[1], reverse = True) # could make this slower "potentitally??"
+            all_probs = sorted(all_probs, reverse=True)
+            self.pred_crew_cells = list()
+            for cell in pred_crew_cells:
+                max_range = 5 if len(all_probs) > 5 else len(all_probs)
+                for i in range(max_range):
+                    if cell[1] == all_probs[i]:
+                        self.pred_crew_cells.append(cell[0])
 
         self.crew_probs.beep_prob = beep_prob
         self.crew_probs.no_beep_prob = no_beep_prob
@@ -487,7 +526,7 @@ def run_test(log_level = LOG_INFO):
     update_lookup(ALPHA)
     ship = Ship(GRID_SIZE)
     ship.place_players()
-    print_my_grid(ship.grid)
+    # print_my_grid(ship.grid)
     use_version = 1
     # bot_1 = Bot_1(ship, log_level)
     # bot_1.start_rescue()
