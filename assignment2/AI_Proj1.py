@@ -14,8 +14,6 @@ BOT_CAUGHT_CELL = 32
 ALIEN_MOVEMENT_CELLS = CREW_CELL | OPEN_CELL # BOT_CELL
 GRID_SIZE = 35
 
-BOT_CAUGHT_FLAG = 1
-
 TOTAL_ITERATIONS = 10000
 MAX_ALPHA_ITERATIONS = 10
 
@@ -95,14 +93,6 @@ class Logger:
             print("")
         print("****************")
 
-'''
-    If beep heard, cells within detection zone: P(B obs /A) = 1
-    cells outside P(B obs /A) = 0
-    If beep not heard, cells within detection zone: P(B obs /A) = 0
-    cells outside P(B obs /A) = 1
-
-    P(A/B obs) = P(B obs/ A) P(A) / P(B obs)
-'''
 class Cell_Probs:
     def __init__(self):
         self.crew_prob = 0
@@ -128,7 +118,7 @@ class Alien_Probs:
     def __init__(self, ship):
         self.present_alien_cells = list(ship.initial_alien_cells)
         self.all_alien_cells = list(ship.open_cells)
-        self.all_alien_cells.extend(ship.crew, ship.bot)
+        self.all_alien_cells.extend([ship.crew, ship.bot])
         self.is_beep_recv = False
 
 
@@ -302,6 +292,7 @@ class SearchAlgo:
         self.curr_pos = ship.bot
         self.alien_pos = ship.alien
         self.logger = Logger(log_level)
+        # Working on few issues, will fix it ASAP
         self.alien_calculation_disabled = True
 
     def search_path(self, dest_cell):
@@ -335,7 +326,7 @@ class ParentBot(SearchAlgo):
         self.is_keep_moving = self.is_inital_calc_done = False
         self.recalc_pred_cells = True
         self.path_pos = 0
-        # self.logger.print_grid(LOG_DEBUG_GRID, self.ship.grid)
+        self.logger.print_grid(LOG_DEBUG_GRID, self.ship.grid)
 
     def update_cell_mov_vals(self, cell, cell_cord):
         cell.bot_distance = abs(self.curr_pos[0] - cell_cord[0]) + abs(self.curr_pos[1] - cell_cord[1])
@@ -427,7 +418,6 @@ class ParentBot(SearchAlgo):
             )
             self.bot_caught_cell = alien_new_pos
             self.ship.grid[alien_new_pos[0]][alien_new_pos[1]].cell_type = BOT_CAUGHT_CELL
-            self.flag = BOT_CAUGHT_FLAG
             return True
         
         else:
@@ -582,9 +572,13 @@ class Bot_1(ParentBot):
                 cell = self.ship.grid[cell_cord[0]][cell_cord[1]]
                 self.logger.print(LOG_DEBUG, f"Now the cell.alien_prob for cell_cord::{cell_cord} is {cell.probs.alien_prob}")
 
-
-
-
+    '''
+        If beep heard, cells within detection zone: P(B obs /A) = 1
+        cells outside P(B obs /A) = 0
+        If beep not heard, cells within detection zone: P(B obs /A) = 0
+        cells outside P(B obs /A) = 1
+        P(A/B obs) = P(B obs/ A) P(A) / P(B obs)
+    '''
     def calc_alien_probs(self):
         if self.alien_calculation_disabled: return
         alien_cells = self.alien_probs.all_alien_cells
@@ -641,7 +635,7 @@ class Bot_1(ParentBot):
             alien_cell = self.ship.grid[self.alien_pos[0]][self.alien_pos[1]]
             self.alien_probs.is_beep_recv = alien_cell.within_detection_zone
             self.logger.print(
-                LOG_DEBUG_ALIEN,
+                LOG_DEBUG,
                 f"alien_pos:{self.alien_pos}, within_detection_zone::{alien_cell.within_detection_zone}"
             )
 
@@ -684,11 +678,10 @@ def update_lookup(alpha):
     LOOKUP_E = [pow(exp, (-1*ALPHA*(i - 1))) for i in range(GRID_SIZE*2 + 1)]
     LOOKUP_NOT_E = [(1-LOOKUP_E[i]) for i in range(GRID_SIZE*2 + 1)]
 
-def run_test(log_level = LOG_DEBUG_ALIEN):
+def run_test(log_level = LOG_INFO):
     update_lookup(ALPHA)
-    ship = Ship(GRID_SIZE, log_level)
+    ship = Ship(GRID_SIZE)
     ship.place_players()
-    print_my_grid(ship.grid)
     use_version = 1
     bot_1 = Bot_1(ship, log_level)
     bot_1.start_rescue()
