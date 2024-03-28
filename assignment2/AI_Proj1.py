@@ -61,7 +61,7 @@ def print_my_grid(grid):
     print("****************")
     for i, cells in enumerate(grid):
         for j, cell in enumerate(cells):
-            print(f"{cell.cell_type}", end = " ")
+            print(f"{i}{j}::{cell.cell_type}", end = " ")
         print("")
     print("****************")
 
