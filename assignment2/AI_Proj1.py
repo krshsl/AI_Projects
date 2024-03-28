@@ -1,4 +1,4 @@
-from random import randint, uniform, choice
+from random import choice, randint, uniform
 from math import e as exp
 from inspect import currentframe
 from time import time
@@ -9,6 +9,9 @@ CLOSED_CELL = 1
 OPEN_CELL = 2
 BOT_CELL = 4
 CREW_CELL = 8
+ALIEN_CELL = 16
+BOT_CAUGHT_CELL = 32
+ALIEN_MOVEMENT_CELLS = CREW_CELL | OPEN_CELL # BOT_CELL
 GRID_SIZE = 35
 
 TOTAL_ITERATIONS = 10000
@@ -17,17 +20,22 @@ MAX_ALPHA_ITERATIONS = 10
 X_COORDINATE_SHIFT = [1, 0, 0, -1]
 Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 
+ALIEN_ZONE_SIZE = 3 # k - k >= 1, need to determine the large value
 ALPHA = 0.02 # avoid alpha > 11 for 35x35
 FQ_THRESHOLD = 0.05
 INITIAL_BEEP_COUNT = 81
 
 LOG_NONE = 0
+LOG_DEBUG_ALIEN = 0.5
 LOG_INFO = 1
 LOG_DEBUG = 2
 LOG_DEBUG_GRID = 3
 
 LOOKUP_E = []
 LOOKUP_NOT_E = []
+
+ALIEN_NOT_PRESENT = 0
+ALIEN_PRESENT = 1
 
 use_version = 1
 total_versions = 1 # support till 3 stopped :p
@@ -93,6 +101,9 @@ class Cell_Probs:
         self.crew_and_beep = 0
         self.crew_and_no_beep = 0
 
+        self.alien_prob = 0
+        self.alien_given_beep_obs = 0
+        self.alien_and_beep = 0
 
 class Crew_Probs:
     def __init__(self, ship):
@@ -102,6 +113,13 @@ class Crew_Probs:
         self.is_beep_recv = False
         self.beep_count = 0
         self.max_beeps = INITIAL_BEEP_COUNT
+    
+class Alien_Probs:
+    def __init__(self, ship):
+        self.present_alien_cells = list(ship.initial_alien_cells)
+        self.all_alien_cells = list(ship.open_cells)
+        self.all_alien_cells.extend([ship.crew, ship.bot])
+        self.is_beep_recv = False
 
 
 class Cell:
@@ -112,6 +130,7 @@ class Cell:
         self.cord = (row, col)
         self.crew_distance = 0
         self.prob_hearing_beep = 0
+        self.within_detection_zone = False
 
 
 class Ship:
@@ -123,6 +142,7 @@ class Ship:
         self.isBeep = 0
         self.bot = (0, 0)
         self.crew = (0, 0)
+        self.alien = (0, 0)
 
         #closed grid formation...
         self.generate_grid()
@@ -199,6 +219,8 @@ class Ship:
         self.grid[self.bot[0]][self.bot[1]].cell_type = BOT_CELL
         self.grid[self.crew[0]][self.crew[1]].cell_type = CREW_CELL
 
+        self.place_aliens()
+
     def set_cell_details(self, reset = False):
         for i, cells in enumerate(self.grid):
             for j, cell in enumerate(cells):
@@ -216,19 +238,62 @@ class Ship:
         if self.isBeep <= self.grid[cell[0]][cell[1]].prob_hearing_beep:
             return True
         return False
+    
+    def place_aliens(self):
+        cells_within_zone = self.get_detection_zone(self.bot)
+        self.initial_alien_cells = [cell_cord for cell_cord in self.open_cells if cell_cord not in cells_within_zone]
+
+        while(True):
+            self.alien = (randint(0, self.size -1), randint(0, self.size -1))
+            if (self.alien not in self.initial_alien_cells):
+                break
+        
+        self.grid[self.alien[0]][self.alien[1]].cell_type = ALIEN_CELL
+
+    
+    def get_detection_zone(self, cell):
+        k = ALIEN_ZONE_SIZE
+
+        cells_within_zone = []
+        min_row = max(0, cell[0] - k)
+        max_row = min(self.size - 1, cell[0] + k)
+        min_col = max(0, cell[1] - k)
+        max_col = min(self.size - 1, cell[1] + k)
+
+        for row in range(min_row, max_row + 1):
+            for col in range(min_col, max_col + 1):
+                cell = self.grid[row][col]
+                cell.within_detection_zone = True
+                cells_within_zone.append((row, col))
+
+        return cells_within_zone
+    
+    def reset_detection_zone(self, curr_cell):
+        cells_within_zone = self.get_detection_zone(curr_cell)
+        
+        # Reset cells outside detection zone to false
+        for i, cells in enumerate(self.grid):
+            for j, cell in enumerate(cells):
+                if (i, j) not in cells_within_zone: cell.within_detection_zone = False
+
+        return cells_within_zone
 
     def reset_grid(self):
         self.open_cells = []
         self.set_cell_details(True)
         self.grid[self.bot[0]][self.bot[1]].cell_type = BOT_CELL
         self.grid[self.crew[0]][self.crew[1]].cell_type = CREW_CELL
+        # Need to add alien and detection zone logic here
 
 
 class SearchAlgo:
     def __init__(self, ship, log_level):
         self.ship = ship
         self.curr_pos = ship.bot
+        self.alien_pos = ship.alien
         self.logger = Logger(log_level)
+        # Working on few issues, will fix it ASAP
+        self.alien_calculation_disabled = True
 
     def search_path(self, dest_cell):
         bfs_queue = []
@@ -255,6 +320,7 @@ class ParentBot(SearchAlgo):
     def __init__(self, ship, log_level):
         super(ParentBot, self).__init__(ship, log_level)
         self.crew_probs = Crew_Probs(ship)
+        self.alien_probs = Alien_Probs(ship)
         self.traverse_path = []
         self.pred_crew_cells = []
         self.is_keep_moving = self.is_inital_calc_done = False
@@ -282,7 +348,13 @@ class ParentBot(SearchAlgo):
             cell.probs.crew_prob = 1/crew_cell_size
             cell = self.update_cell_mov_vals(cell, cell_cord)
 
+        alien_cell_size = len(self.alien_probs.present_alien_cells)
+        for cell_cord in self.alien_probs.present_alien_cells:
+            cell = self.ship.grid[cell_cord[0]][cell_cord[1]]
+            cell.probs.alien_prob = 1/alien_cell_size
+        
         self.is_inital_calc_done = True
+
 
     """
         Ideally it is better to move the bot in the direction of the highest prob
@@ -316,14 +388,55 @@ class ParentBot(SearchAlgo):
         self.logger.print(LOG_DEBUG, f"Bot{old_pos} has moved to {self.curr_pos}")
         self.logger.print_grid(LOG_DEBUG_GRID, self.ship.grid)
         return True
+    
+    def move_aliens(self):
+        if self.alien_calculation_disabled: return
+        alien_moves_possible = get_neighbors(
+                self.ship.size,
+                self.alien_pos,
+                self.ship.grid,
+                ALIEN_MOVEMENT_CELLS
+            )
+        
+        if len(alien_moves_possible) == 0:
+            return
+
+        self.logger.print(
+            LOG_DEBUG,
+            f"Alien has moves {alien_moves_possible}"
+        )
+
+        alien_new_pos = choice(alien_moves_possible)
+
+        old_alien_pos = self.alien_pos
+        self.alien_pos = alien_new_pos
+        
+        if self.ship.grid[alien_new_pos] & BOT_CELL:
+            self.logger.print(
+                LOG_DEBUG,
+                f"Alien moves from current cell {old_alien_pos} to bot cell {alien_new_pos}",
+            )
+            self.bot_caught_cell = alien_new_pos
+            self.ship.grid[alien_new_pos[0]][alien_new_pos[1]].cell_type = BOT_CAUGHT_CELL
+            return True
+        
+        else:
+            self.logger.print(
+                LOG_DEBUG,
+                f"Alien moves from current cell {self.ship.grid[old_alien_pos]} to open cell {alien_new_pos}",
+            )
+            self.ship.grid[alien_new_pos[0]][alien_new_pos[1]].cell_type = ALIEN_CELL
+        
+        self.ship.grid[old_alien_pos[0]][old_alien_pos[1]].cell_type = OPEN_CELL
+
+        return False
+
 
 class Bot_1(ParentBot):
     def __init__(self, ship, log_level = LOG_NONE):
         super(Bot_1, self).__init__(ship, log_level)
 
     def calc_crew_probs(self, observed_fq, bot_moved, is_move_bot):
-        self.calc_initial_probs()
-
         beep_prob = no_beep_prob = 0
         observed_fq = round(observed_fq, 2)
         threshold = FQ_THRESHOLD * (self.crew_probs.max_beeps / INITIAL_BEEP_COUNT)
@@ -414,6 +527,80 @@ class Bot_1(ParentBot):
         self.crew_probs.no_beep_prob = no_beep_prob
         self.logger.print(LOG_DEBUG, f"beep_prob::{self.crew_probs.beep_prob}, no_beep_prob::{self.crew_probs.no_beep_prob}")
         self.logger.print(LOG_DEBUG, f"Bot in {self.curr_pos} has updated crew cells to be, {self.crew_probs.crew_cells}. The pred cells is {self.pred_crew_cells}, with traverse path {self.traverse_path}")
+    
+    def compute_likely_alien_movements(self):
+        if self.alien_calculation_disabled: return
+        alien_cells = self.alien_probs.present_alien_cells # N at any point t
+        prob_cell_mapping = dict()
+
+        for cell_cord in alien_cells:
+            cell = self.ship.grid[cell_cord[0]][cell_cord[1]]
+            prob_cell_mapping[cell_cord] = cell.probs.alien_prob
+            cell.probs.alien_prob = 0
+
+        self.logger.print(
+            LOG_DEBUG, f"alien_cells::{alien_cells}, prob_cell_mapping::{prob_cell_mapping}"
+        )
+
+        for cell_cord in alien_cells:
+            cell = self.ship.grid[cell_cord[0]][cell_cord[1]]
+            cell_prob = prob_cell_mapping[cell_cord]
+            possible_alien_moves = get_neighbors(
+                self.ship.size,
+                cell_cord,
+                self.ship.grid,
+                ALIEN_MOVEMENT_CELLS
+            )
+
+            total_moves = len(possible_alien_moves)
+
+            if(total_moves == 0):
+                cell.probs.alien_prob = cell_prob
+                continue
+
+            for alien_move in possible_alien_moves:
+                new_cell = self.ship.grid[alien_move[0]][alien_move[1]]
+                new_cell.probs.alien_prob += cell_prob/total_moves
+                self.logger.print(
+                    LOG_DEBUG, f"alien_cells::{alien_cells}, prob_cell_mapping::{prob_cell_mapping}"
+                )
+        
+        prob_cell_mapping.clear()
+
+        if self.logger.log_level == LOG_DEBUG:
+            for cell_cord in alien_cells:
+                cell = self.ship.grid[cell_cord[0]][cell_cord[1]]
+                self.logger.print(LOG_DEBUG, f"Now the cell.alien_prob for cell_cord::{cell_cord} is {cell.probs.alien_prob}")
+
+    '''
+        If beep heard, cells within detection zone: P(B obs /A) = 1
+        cells outside P(B obs /A) = 0
+        If beep not heard, cells within detection zone: P(B obs /A) = 0
+        cells outside P(B obs /A) = 1
+        P(A/B obs) = P(B obs/ A) P(A) / P(B obs)
+    '''
+    def calc_alien_probs(self):
+        if self.alien_calculation_disabled: return
+        alien_cells = self.alien_probs.all_alien_cells
+        beep_recv = self.alien_probs.is_beep_recv
+
+        prob_alien_in_inner_cells = ALIEN_PRESENT if beep_recv else ALIEN_NOT_PRESENT
+        prob_alien_in_outer_cells = ALIEN_PRESENT if (not beep_recv) else ALIEN_NOT_PRESENT
+
+        for cell_cord in alien_cells:
+            cell = self.ship.grid[cell_cord[0]][cell_cord[1]]
+
+            prob_beep_gv_alien = prob_alien_in_inner_cells if cell.within_detection_zone else prob_alien_in_outer_cells
+            cell.alien_and_beep = prob_beep_gv_alien * cell.probs.alien_prob
+
+            # cell.probs.alien_given_beep_obs =
+            continue
+        pass
+
+
+
+
+
 
     def is_rescued(self, init_distance, total_iter, idle_steps):
         if (self.curr_pos == self.ship.crew):
@@ -444,7 +631,18 @@ class Bot_1(ParentBot):
                 self.crew_probs.beep_count += 1
             self.logger.print(LOG_DEBUG, self.crew_probs.beep_count, beep_counter)
 
+            # Alien beep logic
+            alien_cell = self.ship.grid[self.alien_pos[0]][self.alien_pos[1]]
+            self.alien_probs.is_beep_recv = alien_cell.within_detection_zone
+            self.logger.print(
+                LOG_DEBUG,
+                f"alien_pos:{self.alien_pos}, within_detection_zone::{alien_cell.within_detection_zone}"
+            )
+
+            self.calc_initial_probs()
             self.calc_crew_probs((self.crew_probs.beep_count/beep_counter), bot_moved, self.is_keep_moving or is_move_bot)
+            self.calc_alien_probs()
+
             if (self.is_keep_moving or is_move_bot) and self.move_bot():
                 if (self.is_rescued(init_distance, total_iter, idle_steps)):
                     return (init_distance, total_iter, idle_steps)
@@ -454,10 +652,17 @@ class Bot_1(ParentBot):
                 beep_counter = 1
                 is_move_bot = False
                 bot_moved = True
+                self.ship.reset_detection_zone(self.curr_pos)
             else:
                 is_move_bot = False
                 bot_moved = False
                 idle_steps += 1
+
+            if self.move_aliens():
+                return
+                
+            # update probability of alien movement based on current P(A), cell.alien_prob
+            self.compute_likely_alien_movements()
 
             beep_counter += 1
             if beep_counter >= (self.crew_probs.max_beeps):
@@ -477,7 +682,6 @@ def run_test(log_level = LOG_INFO):
     update_lookup(ALPHA)
     ship = Ship(GRID_SIZE)
     ship.place_players()
-    # print_my_grid(ship.grid)
     use_version = 1
     bot_1 = Bot_1(ship, log_level)
     bot_1.start_rescue()
@@ -561,6 +765,6 @@ def compare_multiple_alpha():
         print(key, value)
 
 if __name__ == '__main__':
-    # run_test()
-    run_multi_sim(ALPHA, True)
+    run_test()
+    # run_multi_sim(ALPHA, True)
     # compare_multiple_alpha()
