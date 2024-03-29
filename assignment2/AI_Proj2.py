@@ -19,7 +19,7 @@ X_COORDINATE_SHIFT = [1, 0, 0, -1]
 Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 
 ALIEN_ZONE_SIZE = 3 # k - k >= 1, need to determine the large value
-ALPHA = 0.2 # avoid alpha > 11 for 35x35
+ALPHA = 2 # avoid alpha > 11 for 35x35
 IDLE_BEEP_COUNT = 10
 
 TOTAL_ITERATIONS = 1000
@@ -507,6 +507,7 @@ class Bot_1(ParentBot):
         self.crew_search_data = One_Crew_Search(ship)
         self.total_crew_count = 1
         self.pending_crew = 1
+        self.ship.get_cell(self.ship.crew_2).cell_type = OPEN_CELL
 
     def calc_initial_search_data(self):
         if (self.is_inital_calc_done):
@@ -765,6 +766,7 @@ class Bot_3(Bot_1):
         super(Bot_3, self).__init__(ship, log_level)
         self.total_crew_count = 2
         self.pending_crew = 0
+        self.ship.get_cell(self.ship.crew_2).cell_type = CREW_CELL
 
     def rescue_info(self):
         init_1_distance = self.ship.get_cell(self.curr_pos).listen_beep.crew_1_dist
