@@ -1,7 +1,7 @@
 from random import randint, uniform, choice
-from matplotlib import pyplot
 from math import e as exp
 from inspect import currentframe
+from matplotlib import pyplot as plt
 from time import time
 from multiprocessing import Process, Queue, cpu_count
 
@@ -12,8 +12,9 @@ BOT_CELL = 4
 CREW_CELL = 8
 ALIEN_CELL = 16
 BOT_CAUGHT_CELL = 32
-ALIEN_MOVEMENT_CELLS = CREW_CELL | OPEN_CELL # BOT_CELL
-GRID_SIZE = 35
+MOVEMENT_CELLS = CREW_CELL | OPEN_CELL | ALIEN_CELL
+ALIEN_MOVEMENT_CELLS = CREW_CELL | OPEN_CELL | BOT_CELL
+GRID_SIZE = 10
 
 X_COORDINATE_SHIFT = [1, 0, 0, -1]
 Y_COORDINATE_SHIFT = [0, 1, -1, 0]
@@ -22,7 +23,7 @@ ALIEN_ZONE_SIZE = 3 # k - k >= 1, need to determine the large value
 ALPHA = 2 # avoid alpha > 11 for 35x35
 IDLE_BEEP_COUNT = 10
 
-TOTAL_ITERATIONS = 1000
+TOTAL_ITERATIONS = 100
 MAX_ALPHA_ITERATIONS = 10
 ALPHA_STEP_INCREASE = 0.2
 TOTAL_BOTS = 1
@@ -156,7 +157,7 @@ class Crew_Probs: # contains all the prob of crew in each cell
         self.track_beep = list((0, 0))
 
 class Alien_Probs:
-    def __init__(self, ship):
+    def __init__(self):
         self.alien_prob = 0
 
 
@@ -270,13 +271,7 @@ class Ship:
     def place_aliens(self):
         cells_within_zone = self.get_detection_zone(self.bot)
         self.initial_alien_cells = [cell_cord for cell_cord in self.open_cells if cell_cord not in cells_within_zone]
-
-        while(True):
-            self.alien = (randint(0, self.size -1), randint(0, self.size -1))
-            if (self.alien not in self.initial_alien_cells):
-                break
-
-        self.grid[self.alien[0]][self.alien[1]].cell_type = ALIEN_CELL
+        self.alien = choice(self.initial_alien_cells)
     
     def move_aliens(self):
         # if self.disable_alien_calculation:
@@ -288,14 +283,18 @@ class Ship:
         
         for alien_cell in alien_cells:
             alien_moves_possible = get_neighbors(
-                    self.size,
-                    alien_cell,
-                    self.grid,
-                    ALIEN_MOVEMENT_CELLS
-                )
+                self.size,
+                alien_cell,
+                self.grid,
+                ALIEN_MOVEMENT_CELLS
+            )
             
             if len(alien_moves_possible) == 0:
-                return
+                self.logger.print(
+                    LOG_DEBUG,
+                    f"Alien has no moves"
+                )
+                continue
 
             self.logger.print(
                 LOG_DEBUG,
@@ -306,23 +305,23 @@ class Ship:
             old_alien_pos = alien_cell
             self.alien = alien_new_pos  # Assuming its only one for now
             
-            if self.grid[alien_new_pos] & BOT_CELL:
+            if self.grid[alien_new_pos[0]][alien_new_pos[1]].cell_type & BOT_CELL:
                 self.logger.print(
                     LOG_DEBUG,
                     f"Alien moves from current cell {old_alien_pos} to bot cell {alien_new_pos}",
                 )
                 self.bot_caught_cell = alien_new_pos
                 self.grid[alien_new_pos[0]][alien_new_pos[1]].cell_type = BOT_CAUGHT_CELL
+                self.grid[old_alien_pos[0]][old_alien_pos[1]].cell_type = OPEN_CELL
                 return True
             
             else:
                 self.logger.print(
                     LOG_DEBUG,
-                    f"Alien moves from current cell {self.ship.grid[old_alien_pos]} to open cell {alien_new_pos}",
+                    f"Alien moves from current cell {old_alien_pos} to open cell {alien_new_pos}",
                 )
                 self.grid[alien_new_pos[0]][alien_new_pos[1]].cell_type = ALIEN_CELL
-            
-            self.grid[old_alien_pos[0]][old_alien_pos[1]].cell_type = OPEN_CELL
+                self.grid[old_alien_pos[0]][old_alien_pos[1]].cell_type = OPEN_CELL
 
         return False
 
@@ -470,6 +469,31 @@ class ParentBot(SearchAlgo):
             return False
 
         return True
+
+    def print_prob_grid(self, is_beep_recv, curr_pos):
+        prob_grid = []
+        prob_spread = list()
+        grid = self.ship.grid
+        for cells in grid:
+            prob_cell = []
+            for cell in cells:
+                if cell.cell_type == CLOSED_CELL:
+                    prob_cell.append(float('nan'))
+                else:
+                    prob_cell.append(cell.probs.alien_prob)
+                    if not cell.probs.alien_prob in prob_spread:
+                        prob_spread.append(cell.probs.alien_prob)
+
+            prob_grid.append(prob_cell)
+
+        prob_spread.sort()
+        max_len = len(prob_spread) - 1
+        prob_grid[curr_pos[0]][curr_pos[1]] = 0
+
+        plt.figure(figsize=(35,35))
+        plt.colorbar(plt.imshow(prob_grid, vmin=prob_spread[0], vmax=prob_spread[max_len]))
+        plt.title("Beep recv" if is_beep_recv else "Beep not recv")
+        plt.show()
 
     """
         Ideally it is better to move the bot in the direction of the highest prob
@@ -765,7 +789,7 @@ class Bot_1(ParentBot):
                 beep_counter = 0
                 is_move_bot = False
                 bot_moved = True
-                self.ship.reset_detection_zone(self.curr_pos)
+                # self.ship.reset_detection_zone(self.curr_pos)
             else:
                 is_move_bot = False
                 bot_moved = False
@@ -804,15 +828,15 @@ def update_lookup(alpha):
     LOOKUP_E = [pow(exp, (-1*ALPHA*(i - 1))) for i in range(GRID_SIZE*2 + 1)]
     LOOKUP_NOT_E = [(1-LOOKUP_E[i]) for i in range(GRID_SIZE*2 + 1)]
 
-# Test function
-def run_test(log_level = LOG_INFO):
+def run_test(log_level = LOG_DEBUG):
     update_lookup(ALPHA)
-    ship = Ship(GRID_SIZE)
+    ship = Ship(GRID_SIZE, log_level)
     ship.place_players()
-    bot_1 = Bot_1(ship, log_level)
-    bot_1.start_rescue()
-    del bot_1
-    del ship
+    ship.logger.print_grid(ship.grid)
+    # bot_1 = Bot_1_v2(ship, log_level)
+    # bot_1.start_rescue()
+    # del bot_1
+    # del ship
 
 def bot_factory(itr, ship):
     if (itr % TOTAL_BOTS == 0):
@@ -828,18 +852,19 @@ def run_sim(my_range, queue, alpha):
     space_itr = round((my_range[0]/100) + 1)
     for itr in my_range:
         print(itr+1, end='\r')
-        ship = Ship(GRID_SIZE)
+        ship = Ship(GRID_SIZE, LOG_DEBUG_GRID)
         ship.place_players()
-        for i in range(TOTAL_BOTS):
-            bot = bot_factory(i, ship)
-            begin = time()
-            ret_vals = bot.start_rescue()
-            end = time()
-            for j in range(3):
-                temp_data_set[i][j] += ret_vals[j]
-            temp_data_set[i][3] += (end-begin)
-            ship.reset_grid()
-            del bot
+        ship.logger.print_grid(ship.grid)
+        # for i in range(TOTAL_BOTS):
+        #     bot = bot_factory(i, ship)
+        #     begin = time()
+        #     ret_vals = bot.start_rescue()
+        #     end = time()
+        #     for j in range(3):
+        #         temp_data_set[i][j] += ret_vals[j]
+        #     temp_data_set[i][3] += (end-begin)
+        #     ship.reset_grid()
+        #     del bot
         del ship
 
     queue.put(temp_data_set)
@@ -902,6 +927,6 @@ def compare_multiple_alpha():
 
 # BOT HAS SOME LOGIC IN PROB FOR SOME REASON!!!!
 if __name__ == '__main__':
-    # run_test()
-    run_multi_sim(ALPHA, True)
+    run_test()
+    # run_multi_sim(ALPHA, True)
     # compare_multiple_alpha()
