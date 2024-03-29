@@ -14,7 +14,7 @@ ALIEN_CELL = 16
 BOT_CAUGHT_CELL = 32
 BOT_MOVEMENT_CELLS = OPEN_CELL | CREW_CELL | ALIEN_CELL
 ALIEN_MOVEMENT_CELLS = CREW_CELL | OPEN_CELL # BOT_CELL
-GRID_SIZE = 35
+GRID_SIZE = 10
 
 X_COORDINATE_SHIFT = [1, 0, 0, -1]
 Y_COORDINATE_SHIFT = [0, 1, -1, 0]
@@ -23,7 +23,7 @@ ALIEN_ZONE_SIZE = 3 # k - k >= 1, need to determine the large value
 ALPHA = 0.5 # avoid alpha > 11 for 35x35
 IDLE_BEEP_COUNT = 10
 
-TOTAL_ITERATIONS = 10000
+TOTAL_ITERATIONS = 1000
 MAX_ALPHA_ITERATIONS = 10
 ALPHA_STEP_INCREASE = 0.5
 TOTAL_BOTS = 1
@@ -79,14 +79,14 @@ class Logger:
             print(currentframe().f_back.f_code.co_name, "::", currentframe().f_back.f_lineno, "::", sep="", end="")
             print(f"curr_pos::{curr_pos}, cell_cord::{cell.cord}, cell_distance::{cell.crew_probs.bot_distance}, crew_prob::{cell.crew_probs.crew_prob}, beep_given_crew::{cell.crew_probs.beep_given_crew}, no_beep_given_crew::{cell.crew_probs.no_beep_given_crew}, crew_and_beep::{cell.crew_probs.crew_and_beep}, crew_and_no_beep::{cell.crew_probs.crew_and_no_beep}")
 
-    def print_grid(self, grid):
-        if not self.check_log_level(LOG_DEBUG_GRID):
+    def print_grid(self, grid, log_level = LOG_DEBUG_GRID):
+        if not self.check_log_level(log_level):
             return
 
         print("****************")
         for i, cells in enumerate(grid):
             for j, cell in enumerate(cells):
-                print(f"{i}{j}::{cell.cell_type}", end = " ")
+                print("%10s" % (str(i) + str(j) + "::" + str(cell.cell_type)), end = " ")
             print("")
         print("****************")
 
@@ -210,7 +210,7 @@ class Ship:
 
     def unblock_closed_cells(self):
         available_cells = self.cells_with_one_open_neighbor(CLOSED_CELL)
-        while available_cells:
+        while len(available_cells):
             closed_cell = choice(available_cells)
             self.get_cell(closed_cell).cell_type = OPEN_CELL
             self.open_cells.append(closed_cell)
@@ -221,8 +221,10 @@ class Ship:
         half_len = len(dead_end_cells)/2
 
         while half_len > 0:
-            if len(dead_end_cells) == 0: continue
+            dead_end_cells = self.cells_with_one_open_neighbor(OPEN_CELL)
             half_len -= 1
+            if len(dead_end_cells):
+                continue
             dead_end_cell = choice(dead_end_cells)
             closed_neighbors = get_neighbors(
                 self.size, dead_end_cell, self.grid, CLOSED_CELL
@@ -230,7 +232,6 @@ class Ship:
             random_cell = choice(closed_neighbors)
             self.get_cell(random_cell).cell_type = OPEN_CELL
             self.open_cells.append(random_cell)
-            dead_end_cells = self.cells_with_one_open_neighbor(OPEN_CELL)
 
     def cells_with_one_open_neighbor(self, cell_type):
         results = []
@@ -417,6 +418,7 @@ class ParentBot(SearchAlgo):
             prob_crew_cell = self.pred_crew_cells.pop(0)
             self.traverse_path = self.search_path(prob_crew_cell)
             if len(self.traverse_path) == 0:
+                self.logger.print_grid(self.ship.grid, LOG_NONE)
                 self.logger.print(LOG_NONE, f"curr pos {self.curr_pos}, traverse path {self.traverse_path}, pred crew cells {self.pred_crew_cells}, popped crew cell {prob_crew_cell}")
                 self.logger.print(LOG_NONE, f"path_traversed {self.path_traversed}")
                 self.logger.print(LOG_NONE, f"crew_cells {self.crew_search_data.crew_cells}")
@@ -857,9 +859,10 @@ def run_sim(my_range, queue, alpha):
     temp_data_set = [[0.0 for i in range(4)] for j in range(TOTAL_BOTS)]
     space_itr = round((my_range[0]/100) + 1)
     for itr in my_range:
-        print(itr+1, end='\r')
-        ship = Ship(GRID_SIZE)
+        print(itr+1, end = '\r')
+        ship = Ship(GRID_SIZE, LOG_DEBUG_GRID)
         ship.place_players()
+        # ship.logger.print_grid(ship.grid)
         for i in range(TOTAL_BOTS):
             bot = Bot_1(ship)
             #bot_factory(i, ship)
@@ -886,6 +889,7 @@ def run_multi_sim(alpha, is_print = False):
     core_count = cpu_count()
     total_iters = round(TOTAL_ITERATIONS/core_count)
     actual_iters = total_iters * core_count
+    print(actual_iters)
     for itr in range(core_count):
         p = Process(target=run_sim, args=(range(itr*total_iters, (itr+1)*total_iters), queue, alpha))
         processes.append(p)
