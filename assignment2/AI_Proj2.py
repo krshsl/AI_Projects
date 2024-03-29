@@ -12,6 +12,7 @@ BOT_CELL = 4
 CREW_CELL = 8
 ALIEN_CELL = 16
 BOT_CAUGHT_CELL = 32
+BOT_MOVEMENT_CELLS = OPEN_CELL | CREW_CELL | ALIEN_CELL
 ALIEN_MOVEMENT_CELLS = CREW_CELL | OPEN_CELL # BOT_CELL
 GRID_SIZE = 35
 
@@ -19,12 +20,12 @@ X_COORDINATE_SHIFT = [1, 0, 0, -1]
 Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 
 ALIEN_ZONE_SIZE = 3 # k - k >= 1, need to determine the large value
-ALPHA = 2 # avoid alpha > 11 for 35x35
+ALPHA = 0.5 # avoid alpha > 11 for 35x35
 IDLE_BEEP_COUNT = 10
 
-TOTAL_ITERATIONS = 1000
+TOTAL_ITERATIONS = 10000
 MAX_ALPHA_ITERATIONS = 10
-ALPHA_STEP_INCREASE = 0.2
+ALPHA_STEP_INCREASE = 0.5
 TOTAL_BOTS = 1
 
 LOG_NONE = 0
@@ -124,6 +125,7 @@ class Alien_Evasion_Data:
         self.present_alien_cells = list(ship.initial_alien_cells)
         self.all_alien_cells = list(ship.open_cells)
         self.all_alien_cells.extend([ship.crew_1, ship.bot])
+        self.is_beep_recv = False
 
 class Crew_Search_Data:
     def __init__(self):
@@ -132,16 +134,17 @@ class Crew_Search_Data:
         self.beep_count = 0
         self.is_beep_recv = False
 
-class One_Crew_Search(Crew_Search_Data):
+class One_Crew_Search_DS(Crew_Search_Data):
     def __init__(self, ship):
-        super(One_Crew_Search, self).__init__()
+        super(One_Crew_Search_DS, self).__init__()
         self.crew_cells = list(ship.open_cells) # list of all possible crew cells
         self.crew_cells.append(ship.crew_1)
         self.crew_cells.append(ship.crew_2)
+        self.crew_cells.append(ship.alien)
 
-class Two_Crew_Search(Crew_Search_Data):
+class Two_Crew_Search_DS(Crew_Search_Data):
     def __init__(self, ship):
-        super(Two_Crew_Search, self).__init__()
+        super(Two_Crew_Search_DS, self).__init__()
 
 class Crew_Probs: # contains all the prob of crew in each cell
     def __init__(self):
@@ -218,6 +221,7 @@ class Ship:
         half_len = len(dead_end_cells)/2
 
         while half_len > 0:
+            if len(dead_end_cells) == 0: continue
             half_len -= 1
             dead_end_cell = choice(dead_end_cells)
             closed_neighbors = get_neighbors(
@@ -226,8 +230,7 @@ class Ship:
             random_cell = choice(closed_neighbors)
             self.get_cell(random_cell).cell_type = OPEN_CELL
             self.open_cells.append(random_cell)
-            if half_len:
-                dead_end_cells = self.cells_with_one_open_neighbor(OPEN_CELL)
+            dead_end_cells = self.cells_with_one_open_neighbor(OPEN_CELL)
 
     def cells_with_one_open_neighbor(self, cell_type):
         results = []
@@ -244,7 +247,10 @@ class Ship:
         self.get_cell(self.bot).cell_type = BOT_CELL
         self.get_cell(self.crew_1).cell_type = CREW_CELL
         self.get_cell(self.crew_2).cell_type = CREW_CELL
-        self.get_cell(self.alien).cell_type = ALIEN_CELL
+        if self.get_cell(self.alien).cell_type & CREW_CELL:
+            self.get_cell(self.alien).cell_type |= ALIEN_CELL
+        else:
+            self.get_cell(self.alien).cell_type = ALIEN_CELL
 
     def place_players(self):
         self.bot = choice(self.open_cells)
@@ -254,18 +260,21 @@ class Ship:
         self.crew_2 = choice(self.open_cells)
         self.open_cells.remove(self.crew_2)
         self.place_aliens()
-        self.init_cell_details()
+        for cell_cord in self.open_cells:
+            self.init_cell_details(cell_cord)
+        self.init_cell_details(self.crew_1)
+        self.init_cell_details(self.crew_2)
+        self.init_cell_details(self.bot)
+        self.init_cell_details(self.alien)
         self.set_player_cell_type()
 
-    def init_cell_details(self):
-        for i, cells in enumerate(self.grid):
-            for j, cell in enumerate(cells):
-                if cell.cell_type & (OPEN_CELL | BOT_CELL | CREW_CELL | ALIEN_CELL):
-                    cell.listen_beep.crew_1_dist = get_manhattan_distance(self.crew_1, (i, j))
-                    cell.listen_beep.crew_2_dist = get_manhattan_distance(self.crew_2, (i, j))
-                    cell.listen_beep.c1_beep_prob = LOOKUP_E[cell.listen_beep.crew_1_dist]
-                    cell.listen_beep.c2_beep_prob = LOOKUP_E[cell.listen_beep.crew_2_dist]
-                    cell.cord = (i, j)
+    def init_cell_details(self, cell_cord):
+        cell = self.get_cell(cell_cord)
+        cell.listen_beep.crew_1_dist = get_manhattan_distance(cell_cord, self.crew_1)
+        cell.listen_beep.crew_2_dist = get_manhattan_distance(cell_cord, self.crew_2)
+        cell.listen_beep.c1_beep_prob = LOOKUP_E[cell.listen_beep.crew_1_dist]
+        cell.listen_beep.c2_beep_prob = LOOKUP_E[cell.listen_beep.crew_2_dist]
+        cell.cord = cell_cord
 
     def place_aliens(self):
         cells_within_zone = self.get_detection_zone(self.bot)
@@ -276,18 +285,13 @@ class Ship:
             if (self.alien not in self.initial_alien_cells):
                 break
 
-        self.grid[self.alien[0]][self.alien[1]].cell_type = ALIEN_CELL
-
-
     def get_detection_zone(self, cell):
         k = ALIEN_ZONE_SIZE
-
         cells_within_zone = []
         min_row = max(0, cell[0] - k)
         max_row = min(self.size - 1, cell[0] + k)
         min_col = max(0, cell[1] - k)
         max_col = min(self.size - 1, cell[1] + k)
-
         for row in range(min_row, max_row + 1):
             for col in range(min_col, max_col + 1):
                 cell = self.grid[row][col]
@@ -315,14 +319,13 @@ class Ship:
 
     def crew_beep(self, cell, crew_count, pending_crew):
         if crew_count == 2:
+            print(crew_count)
             if not pending_crew:
                 c1_beep = self.get_beep(cell, 1)
                 c2_beep = self.get_beep(cell, 2)
                 return c1_beep or c2_beep
-            elif pending_crew == 1:
-                return self.get_beep(cell, 1)
-            elif pending_crew == 2:
-                return self.get_beep(cell, 2)
+            else:
+                return self.get_beep(cell, pending_crew)
         return self.get_beep(cell, 1)
 
     def reset_grid(self):
@@ -356,7 +359,7 @@ class SearchAlgo:
                 continue
 
             visited_cells.add(current_cell)
-            neighbors = get_neighbors(self.ship.size, current_cell, self.ship.grid, (OPEN_CELL | CREW_CELL | ALIEN_CELL))
+            neighbors = get_neighbors(self.ship.size, current_cell, self.ship.grid, BOT_MOVEMENT_CELLS)
             for neighbor in neighbors:
                 if (neighbor not in visited_cells):
                     bfs_queue.append((neighbor, path_traversed + [neighbor]))
@@ -378,6 +381,8 @@ class ParentBot(SearchAlgo):
         self.recalc_pred_cells = True
         self.pending_crew = 0
         self.logger.print_grid(self.ship.grid)
+        self.path_traversed = list()
+        self.path_traversed.append(self.curr_pos)
 
     def update_cell_mov_vals(self, crew_probs, cell_cord):
         crew_probs.bot_distance = get_manhattan_distance(self.curr_pos, cell_cord)
@@ -412,7 +417,9 @@ class ParentBot(SearchAlgo):
             prob_crew_cell = self.pred_crew_cells.pop(0)
             self.traverse_path = self.search_path(prob_crew_cell)
             if len(self.traverse_path) == 0:
-                self.logger.print(LOG_NONE, f"{self.traverse_path} {self.pred_crew_cells} {self.curr_pos} {prob_crew_cell}")
+                self.logger.print(LOG_NONE, f"curr pos {self.curr_pos}, traverse path {self.traverse_path}, pred crew cells {self.pred_crew_cells}, popped crew cell {prob_crew_cell}")
+                self.logger.print(LOG_NONE, f"path_traversed {self.path_traversed}")
+                self.logger.print(LOG_NONE, f"crew_cells {self.crew_search_data.crew_cells}")
             self.logger.print(LOG_DEBUG, f"New path found, {self.traverse_path}. Pending cells to explore, {self.pred_crew_cells}")
             self.traverse_path.pop(0)
 
@@ -438,6 +445,7 @@ class ParentBot(SearchAlgo):
         self.last_pos = self.curr_pos
         self.curr_pos = self.traverse_path.pop(0)
         curr_cell = self.ship.get_cell(self.curr_pos)
+        self.path_traversed.append(self.curr_pos)
         if (curr_cell.cell_type & CREW_CELL):
             curr_cell.cell_type |= BOT_CELL
             # curr_cell.crew_probs.crew_prob = 1
@@ -504,10 +512,17 @@ class ParentBot(SearchAlgo):
 class Bot_1(ParentBot):
     def __init__(self, ship, log_level = LOG_NONE):
         super(Bot_1, self).__init__(ship, log_level)
-        self.crew_search_data = One_Crew_Search(ship)
+        self.crew_search_data = One_Crew_Search_DS(ship)
+        self.override_ship_details()
+
+    def override_ship_details(self):
         self.total_crew_count = 1
         self.pending_crew = 1
-        self.ship.get_cell(self.ship.crew_2).cell_type = OPEN_CELL
+        cell = self.ship.get_cell(self.ship.crew_2)
+        if cell.cell_type & ALIEN_CELL:
+            self.ship.get_cell(self.ship.crew_2).cell_type = ALIEN_CELL
+        else:
+            self.ship.get_cell(self.ship.crew_2).cell_type = OPEN_CELL
 
     def calc_initial_search_data(self):
         if (self.is_inital_calc_done):
@@ -529,6 +544,14 @@ class Bot_1(ParentBot):
 
     def update_pred_crew_cells(self, max_prob, pred_crew_cells):
         self.pred_crew_cells = list()
+        if not max_prob:
+            print(max_prob, pred_crew_cells)
+            self.logger.print(LOG_NONE, f"curr pos {self.curr_pos}, crew_1 {self.ship.crew_1}, crew_2 {self.ship.crew_2}")
+            self.logger.print(LOG_NONE, f"traverse path {self.traverse_path}, pred crew cells {self.pred_crew_cells}")
+            self.logger.print(LOG_NONE, f"path_traversed {self.path_traversed}")
+            self.logger.print(LOG_NONE, f"crew_cells {self.crew_search_data.crew_cells}")
+            self.logger.print(LOG_NONE, f"max_prob {max_prob} pred_crew_cells {pred_crew_cells}")
+
         max_prob_cells = pred_crew_cells[max_prob]
         curr_pos_beeps = self.ship.get_cell(self.curr_pos).crew_probs.track_beep
         curr_pos_fq = curr_pos_beeps[0]/curr_pos_beeps[1] if curr_pos_beeps[1] else 0
@@ -559,7 +582,7 @@ class Bot_1(ParentBot):
         if self.crew_search_data.is_beep_recv:
             return False # no need to check nearby cells when we get a beep
 
-        neighbors = get_neighbors(self.ship.size, self.curr_pos, self.ship.grid, (OPEN_CELL | CREW_CELL))
+        neighbors = get_neighbors(self.ship.size, self.curr_pos, self.ship.grid, BOT_MOVEMENT_CELLS)
         neighbors_in_crew = [neighbor for neighbor in neighbors if neighbor in self.crew_search_data.crew_cells]
         if (len(neighbors_in_crew)):
             for neighbor in neighbors_in_crew:
@@ -587,25 +610,33 @@ class Bot_1(ParentBot):
         max_prob = 0
 
         if (len(self.crew_search_data.crew_cells) == 0):
-             self.logger.print(LOG_NONE, f"Bot in {self.curr_pos} has no crew cells!!!")
-             self.logger.print(LOG_NONE, f"Bot started {self.ship.bot} with crew at {self.ship.crew_1}")
-             self.logger.print(LOG_NONE, f"pred_crew_cells::{self.pred_crew_cells}")
-             exit()
+            self.logger.print(LOG_NONE, f"curr pos {self.curr_pos}, crew_1 {self.ship.crew_1}, crew_2 {self.ship.crew_2}")
+            self.logger.print(LOG_NONE, f"No crew cells!!!")
+            self.logger.print(LOG_NONE, f"pred_crew_cells::{self.pred_crew_cells}")
+            self.logger.print(LOG_NONE, f"path_traversed::{self.path_traversed}")
+            exit()
 
         if(self.check_nearby_crew() or bot_moved):
             self.update_crew_probs_on_movement()
 
         self.logger.print(LOG_DEBUG, f"is_beep_recv::{self.crew_search_data.is_beep_recv}")
         self.logger.print(LOG_DEBUG, f"beep_prob::{self.crew_search_data.beep_prob}, no_beep_prob::{self.crew_search_data.no_beep_prob}")
+
+        if not (self.crew_search_data.beep_prob):
+            for cell_cord in self.crew_search_data.crew_cells:
+                cell = self.ship.get_cell(cell_cord)
+                self.logger.print_cell_data(LOG_NONE, cell, self.curr_pos)
+
         for cell_cord in self.crew_search_data.crew_cells:
             cell = self.ship.get_cell(cell_cord)
             crew_probs = cell.crew_probs
             self.logger.print_cell_data(LOG_DEBUG, cell, self.curr_pos)
             if not (self.crew_search_data.beep_prob): # some serious issue
-                self.logger.print_cell_data(LOG_NONE, cell, self.curr_pos)
+                # self.logger.print_cell_data(LOG_NONE, cell, self.curr_pos)
                 self.logger.print(LOG_NONE, f"is_beep_recv::{self.crew_search_data.is_beep_recv}")
                 self.logger.print(LOG_NONE, f"beep_prob::{self.crew_search_data.beep_prob}, no_beep_prob::{self.crew_search_data.no_beep_prob}")
-                self.logger.print(LOG_NONE, f"Bot in {self.curr_pos} has updated crew cells to be, {self.crew_search_data.crew_cells}. The pred cells is {self.pred_crew_cells}, with traverse path {self.traverse_path}")
+                self.logger.print(LOG_NONE, f"Bot in {self.curr_pos} has to find crew {self.ship.crew_1, self.ship.crew_2}")
+                self.logger.print(LOG_NONE, f"The crew cells are {self.crew_search_data.crew_cells}. The pred cells is {self.pred_crew_cells}, with traverse path {self.traverse_path}")
                 exit()
 
             crew_probs.crew_given_beep = (crew_probs.crew_and_beep) / self.crew_search_data.beep_prob
@@ -732,6 +763,18 @@ class Bot_1(ParentBot):
             )
 
             self.handle_crew_beep()
+            neighbors = get_neighbors(self.ship.size, self.curr_pos, self.ship.grid, 254)
+            for neighbor in neighbors:
+                if neighbor == self.ship.crew_1 and not self.crew_search_data.is_beep_recv:
+                    self.logger.print(LOG_NONE, f"curr pos {self.curr_pos}, crew_1 {self.ship.crew_1}, crew_2 {self.ship.crew_2}")
+                    self.logger.print(LOG_NONE, f"path_traversed {self.path_traversed}")
+                    self.logger.print(LOG_NONE, f"Bot {self.last_pos} has moved to {self.curr_pos} with {self.total_crew_count} crew pending")
+                    ship_beep = self.ship.isBeep
+                    beep_prob = self.ship.get_cell(self.curr_pos).listen_beep.c1_beep_prob
+                    distance = self.ship.get_cell(self.curr_pos).listen_beep.crew_1_dist
+                    self.logger.print(LOG_NONE, distance, self.curr_pos, self.ship.crew_1, get_manhattan_distance(self.curr_pos, self.ship.crew_1))
+                    self.logger.print(LOG_NONE, f"{ship_beep}, {beep_prob}, {ship_beep <= beep_prob}, {self.crew_search_data.is_beep_recv}, {self.total_crew_count}, {self.pending_crew}")
+
             max_prob, pred_crew_cells = self.update_crew_search_data(bot_moved)
             self.calc_alien_probs()
             if self.recalc_pred_cells:
@@ -764,9 +807,16 @@ class Bot_1(ParentBot):
 class Bot_3(Bot_1):
     def __init__(self, ship, log_level = LOG_NONE):
         super(Bot_3, self).__init__(ship, log_level)
+        self.override_ship_details()
+
+    def override_ship_details(self):
         self.total_crew_count = 2
         self.pending_crew = 0
-        self.ship.get_cell(self.ship.crew_2).cell_type = CREW_CELL
+        cell = self.ship.get_cell(self.ship.crew_2)
+        if cell.cell_type & ALIEN_CELL:
+            self.ship.get_cell(self.ship.crew_2).cell_type |= CREW_CELL
+        else:
+            self.ship.get_cell(self.ship.crew_2).cell_type = CREW_CELL
 
     def rescue_info(self):
         init_1_distance = self.ship.get_cell(self.curr_pos).listen_beep.crew_1_dist
@@ -795,9 +845,9 @@ def run_test(log_level = LOG_INFO):
     del ship
 
 def bot_factory(itr, ship):
-    if (itr % TOTAL_BOTS == 0):
+    if (itr == 0):
         return Bot_1(ship)
-    elif (itr % TOTAL_BOTS == 1):
+    elif (itr == 1):
         return Bot_3(ship)
     return ParentBot(ship, LOG_NONE)
 
@@ -811,7 +861,8 @@ def run_sim(my_range, queue, alpha):
         ship = Ship(GRID_SIZE)
         ship.place_players()
         for i in range(TOTAL_BOTS):
-            bot = bot_factory(i, ship)
+            bot = Bot_1(ship)
+            #bot_factory(i, ship)
             begin = time()
             ret_vals = bot.start_rescue()
             end = time()
