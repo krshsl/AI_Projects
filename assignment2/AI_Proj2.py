@@ -280,11 +280,7 @@ class Ship:
     def place_aliens(self):
         cells_within_zone = self.get_detection_zone(self.bot)
         self.initial_alien_cells = [cell_cord for cell_cord in self.open_cells if cell_cord not in cells_within_zone]
-
-        while(True):
-            self.alien = (randint(0, self.size -1), randint(0, self.size -1))
-            if (self.alien not in self.initial_alien_cells):
-                break
+        self.alien = choice(self.initial_alien_cells)
 
     def get_detection_zone(self, cell):
         k = ALIEN_ZONE_SIZE
