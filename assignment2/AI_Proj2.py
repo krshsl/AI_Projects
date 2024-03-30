@@ -102,8 +102,8 @@ class Logger:
             print(f"curr_pos::{curr_pos}, cell_cord::{(cords.cell_1, cords.cell_2) if type(cords) is Cell_Pair else cords}, cell_distance::{crew_probs.bot_distance}, crew_prob::{crew_probs.crew_prob}, beep_given_crew::{crew_probs.beep_given_crew}, no_beep_given_crew::{crew_probs.no_beep_given_crew}, crew_and_beep::{crew_probs.crew_and_beep}, crew_and_no_beep::{crew_probs.crew_and_no_beep}")
 
     def print_grid(self, grid, log_level = LOG_DEBUG_GRID):
-        # if not self.check_log_level(log_level):
-        #     return
+        if not self.check_log_level(log_level):
+            return
 
         print("****************")
         for i, cells in enumerate(grid):
@@ -218,10 +218,10 @@ class One_Crew_Search_DS(Crew_Search_Data):
         self.no_beep_prob += crew_probs.crew_and_no_beep
 
     def remove_cell_probs(self, cell, logger, curr_pos):
-        if cell.cord not in self.crew_cells:
+        if cell not in self.crew_cells:
             return
 
-        self.crew_cells.remove(cell.cord)
+        self.crew_cells.remove(cell)
         logger.print(LOG_DEBUG, f"Removing current position{curr_pos} from list of probable crew cells{self.crew_cells}")
 
     def init_crew_calcs(self, ship, curr_pos):
@@ -1193,6 +1193,6 @@ def compare_multiple_alpha():
 
 
 if __name__ == '__main__':
-    run_test()
+    # run_test()
     # run_multi_sim([ALPHA], True)
-    # compare_multiple_alpha()
+    compare_multiple_alpha()
