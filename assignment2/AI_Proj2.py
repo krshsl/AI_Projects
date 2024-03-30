@@ -12,6 +12,7 @@ BOT_CELL = 4
 CREW_CELL = 8
 ALIEN_CELL = 16
 BOT_CAUGHT_CELL = 32
+PRED_ALIEN_CELL = 64
 BOT_MOVEMENT_CELLS = OPEN_CELL | CREW_CELL | ALIEN_CELL
 ALIEN_MOVEMENT_CELLS = CREW_CELL | OPEN_CELL | BOT_CELL
 GRID_SIZE = 3
@@ -552,7 +553,8 @@ class SearchAlgo:
         # Working on few issues, will fix it ASAP
         self.disable_alien_calculation = True
 
-    def search_path(self, dest_cell):
+    def search_path(self, dest_cell, grid = None):
+        grid |= self.ship.grid
         bfs_queue = []
         visited_cells = set()
         bfs_queue.append((self.curr_pos, [self.curr_pos]))
@@ -565,7 +567,7 @@ class SearchAlgo:
                 continue
 
             visited_cells.add(current_cell)
-            neighbors = get_neighbors(self.ship.size, current_cell, self.ship.grid, BOT_MOVEMENT_CELLS)
+            neighbors = get_neighbors(self.ship.size, current_cell, grid, BOT_MOVEMENT_CELLS)
             for neighbor in neighbors:
                 if (neighbor not in visited_cells):
                     bfs_queue.append((neighbor, path_traversed + [neighbor]))
