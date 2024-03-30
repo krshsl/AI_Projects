@@ -17,6 +17,9 @@ BOT_MOVEMENT_CELLS = OPEN_CELL | CREW_CELL | ALIEN_CELL
 ALIEN_MOVEMENT_CELLS = CREW_CELL | OPEN_CELL | BOT_CELL
 GRID_SIZE = 3
 
+BOT_SUCCESS = 1
+BOT_FAILED = 2
+
 X_COORDINATE_SHIFT = [1, 0, 0, -1]
 Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 
@@ -441,7 +444,7 @@ class Ship:
         self.initial_alien_cells = [cell_cord for cell_cord in self.open_cells if cell_cord not in cells_within_zone]
         self.alien = choice(self.initial_alien_cells)
     
-    def move_aliens(self):
+    def move_aliens(self, bot):
         # if self.disable_alien_calculation:
         #     return
         all_cells = self.open_cells
@@ -481,6 +484,8 @@ class Ship:
                 self.bot_caught_cell = alien_new_pos
                 self.grid[alien_new_pos[0]][alien_new_pos[1]].cell_type = BOT_CAUGHT_CELL
                 self.grid[old_alien_pos[0]][old_alien_pos[1]].cell_type = OPEN_CELL
+                bot.flag = BOT_FAILED
+                bot.is_bot_caught = True
                 return True
             
             else:
@@ -585,7 +590,7 @@ class ParentBot(SearchAlgo):
         self.total_crew_to_save =  self.total_crew_count = 2
         self.traverse_path = []
         self.pred_crew_cells = []
-        self.rescued_crew = self.is_recalc_probs = self.is_keep_moving = False
+        self.rescued_crew = self.is_recalc_probs = self.is_keep_moving = self.is_bot_caught = False
         self.recalc_pred_cells = True
         self.pending_crew = 0
         self.logger.print_grid(self.ship.grid)
@@ -824,8 +829,9 @@ class ParentBot(SearchAlgo):
         if (curr_cell.cell_type & CREW_CELL):
             curr_cell.cell_type |= BOT_CELL
             curr_cell.crew_probs.crew_prob = 1
-        # elif (curr_cell.cell_type & ALIEN_CELL):
-        #     curr_cell.cell_type |= ALIEN_CELL         #  OOPS BYE BYE
+        elif (curr_cell.cell_type & ALIEN_CELL):    #  OOPS BYE BYE
+            curr_cell.cell_type |= ALIEN_CELL
+            self.is_bot_caught = True
         else:
             curr_cell.cell_type = BOT_CELL
 
@@ -951,7 +957,13 @@ class Bot_1(ParentBot):
 
             if (self.is_keep_moving or is_move_bot) and self.move_bot():
                 if self.is_rescued(total_iter, idle_steps):
+                    self.flag = BOT_SUCCESS
                     return (init_distance, total_iter, idle_steps)
+
+                elif self.is_bot_caught:
+                    self.logger.print(LOG_INFO, f"Bot caught!!!! in cell {self.curr_pos}")
+                    self.flag = BOT_FAILED
+                    return (total_iter, self.curr_pos)
 
                 self.update_crew_cells()
                 beep_counter = 0
@@ -961,8 +973,8 @@ class Bot_1(ParentBot):
                 is_move_bot = False
                 idle_steps += 1
 
-            if self.ship.move_aliens():
-                return
+            if self.ship.move_aliens(self) and self.is_bot_caught:
+                return (total_iter, self.curr_pos)
 
             # update probability of alien movement based on current P(A), cell.alien_prob
             self.compute_likely_alien_movements()
@@ -1124,7 +1136,7 @@ class Bot_4(ParentBot):
                 is_move_bot = False
                 idle_steps += 1
 
-            if self.move_aliens():
+            if self.ship.move_aliens(self):
                 return
 
             # update probability of alien movement based on current P(A), cell.alien_prob
