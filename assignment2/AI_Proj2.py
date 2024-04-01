@@ -784,6 +784,7 @@ class SearchAlgo:
 
     # Default method
     def place_aliens_handler(self):
+        return
         # self.ship.place_aliens(self.alien_config)
 
 
@@ -792,7 +793,7 @@ class SearchAlgo:
 class ParentBot(SearchAlgo):
     def __init__(self, ship, log_level):
         super(ParentBot, self).__init__(ship, log_level)
-        self.alien_evasion_data = One_Alien_Evasion_Data(ship) # to do only in one alien cases
+        # self.alien_evasion_data = One_Alien_Evasion_Data(ship) # to do only in one alien cases
         self.crew_search_data = One_Crew_Search_DS(ship)
         self.total_crew_to_save =  self.total_crew_count = 2
         self.traverse_path = []
