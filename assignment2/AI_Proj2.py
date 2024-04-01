@@ -784,7 +784,7 @@ class SearchAlgo:
 
     # Default method
     def place_aliens_handler(self):
-        self.ship.place_aliens(self.alien_config)
+        # self.ship.place_aliens(self.alien_config)
 
 
 """ Main parent class for all our bots, contain most of the common bot logic """
