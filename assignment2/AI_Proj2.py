@@ -947,7 +947,7 @@ class ParentBot(SearchAlgo):
         least_alien_cells = list()
 
         for cell_cord in bot_adj_cells:
-            cell = self.ship(cell_cord)
+            cell = self.ship.get_cell(cell_cord)
             safe_cell = True
             if cell.alien_probs.alien_prob == ALIEN_NOT_PRESENT:
                 for neighbour in cell.adj_cells:
