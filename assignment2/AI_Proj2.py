@@ -26,7 +26,7 @@ BOT_STUCK = 3
 X_COORDINATE_SHIFT = [1, 0, 0, -1]
 Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 
-ALIEN_ZONE_SIZE = 2 # k - k >= 1, need to determine the large value
+ALIEN_ZONE_SIZE = 5 # k - k >= 1, need to determine the large value
 ALPHA = 0.05 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 10
 TOTAL_UNSAFE_CELLS = 5
@@ -284,10 +284,6 @@ class Crew_Search_Data:
         self.normalize_probs = 0.0 # probs will be reduced from this to normalize them
         self.beep_count = 0
         self.is_beep_recv = False
-
-    def set_beeps_prob(self, beep_prob = 0.0, no_beep_prob = 0.0):
-        self.beep_prob = beep_prob
-        self.no_beep_prob = no_beep_prob
 
     def set_all_probs(self, beep_prob = 0.0, no_beep_prob = 0.0, norm_prob = 0.0):
         self.beep_prob = beep_prob
@@ -930,16 +926,16 @@ class ParentBot(SearchAlgo):
         self.traverse_path.pop(0)
 
         return True
-    
+
     def find_escape_path(self):
         escape_path = self.find_nearest_safe_cell()
         if len(escape_path) == 0:
             return []
-        
+
         escape_path.pop(0)
-        
+
         return escape_path
-    
+
     def find_nearest_safe_cell(self):
         curr_cell = self.ship.get_cell(self.curr_pos)
         bot_adj_cells = curr_cell.adj_cells
@@ -958,7 +954,7 @@ class ParentBot(SearchAlgo):
                         alien_prob_sum += neighbour_cell.alien_probs.alien_prob
 
                 least_alien_cells.append((cell_cord, alien_prob_sum))
-                
+
                 if safe_cell: safe_cells.append(cell_cord)
 
         if len(safe_cells) > 0:
@@ -1073,7 +1069,7 @@ class ParentBot(SearchAlgo):
             # Set the top most likely alien cells
             if beep_recv:
                 prob_cell_list.append((prob, cell.cord))
-            
+
             else:
                 if (len(prob_cell_list) < total_unsafe_cells):
                     prob_cell_list.append((prob, cell.cord))
@@ -1085,7 +1081,7 @@ class ParentBot(SearchAlgo):
 
         self.unsafe_cells = [prob_cell[1] for prob_cell in prob_cell_list]
 
-        self.is_escape_strategy = beep_count > self.max_alien_beep()
+        # self.is_escape_strategy = beep_count > self.max_alien_beep()
 
     def alien_beep(self):
         alien_cell = self.ship.get_cell(self.ship.alien)
@@ -1182,7 +1178,10 @@ class ParentBot(SearchAlgo):
         return
 
     def calculate_best_path(self):
-        if self.is_escape_strategy:
+        if len(self.traverse_path):
+            self.traverse_path = self.search_path(self.traverse_path[-1], None, self.unsafe_cells)
+
+        if self.alien_evasion_data.is_beep_recv and len(self.traverse_path) == 0:
             self.traverse_path = self.find_escape_path()
             if len(self.traverse_path) == 0:
                 # Sit and pray
@@ -1190,14 +1189,14 @@ class ParentBot(SearchAlgo):
         else:
             if len(self.traverse_path):
                 return False
-            
+
             # self.traverse_path = self.search_path(prob_crew_cell, None, self.unsafe_cells)
-            
+
             prob_crew_cell = choice(self.next_best_crew_cells)
             self.traverse_path = self.search_path(prob_crew_cell)
             self.traverse_path.pop(0)
             self.logger.print(LOG_DEBUG, f"New path to cell {prob_crew_cell} was found, {self.traverse_path}")
-        
+
         return True
 
     def start_rescue(self): # working, finalllly ;-;
@@ -1208,7 +1207,6 @@ class ParentBot(SearchAlgo):
         self.logger.print_all_crew_data(LOG_DEBUG, self)
 
         while (True): # Keep trying till you find the crew
-            print(total_iter)
             if total_iter >= 1000:
                 return init_distance, total_iter, total_moves, BOT_STUCK
 
@@ -1216,20 +1214,22 @@ class ParentBot(SearchAlgo):
             idle_steps += 1
             self.handle_alien_beep()
             self.handle_crew_beep()
+
+            if self.alien_evasion_data.is_beep_recv:
+                self.compute_likely_alien_movements()
+
             self.update_alien_data()
             self.update_crew_search_data()
 
-            if idle_steps == IDLE_BEEP_COUNT or self.is_escape_strategy:
+            if idle_steps == IDLE_BEEP_COUNT or self.alien_evasion_data.is_beep_recv:
                 idle_steps = 0
-                # if self.is_escape_strategy:
-                    # self.traverse_path = []
                 keep_moving = self.calculate_best_path()
 
             if keep_moving:
                 if self.move_bot():
                     if self.is_rescued():
                         return init_distance, total_iter, total_moves, BOT_SUCCESS
-                    
+
                     elif self.is_caught:
                         return init_distance, total_iter, total_moves, BOT_FAILED
 
@@ -1240,12 +1240,11 @@ class ParentBot(SearchAlgo):
                     if self.curr_pos in self.crew_search_data.crew_cells:
                         self.remove_cell(self.curr_pos)
                 else:
+                    idle_steps += 1
                     keep_moving = False
-            
+
             if self.ship.move_aliens(self):
                 return init_distance, total_iter, total_moves, BOT_FAILED
-            
-            self.compute_likely_alien_movements()
 
     def max_alien_beep(self):
         k = ALIEN_ZONE_SIZE
@@ -1282,33 +1281,6 @@ class Bot_1(ParentBot):
             cell = self.ship.grid[cell_cord[0]][cell_cord[1]]
             cell.alien_probs.alien_prob = 1/alien_cell_size
 
-    # def update_pred_crew_cells(self):
-    #     self.pred_crew_cells.clear()
-    #     curr_pos_beeps = self.ship.get_cell(self.curr_pos).crew_probs.track_beep
-    #     curr_pos_fq = curr_pos_beeps[0]/curr_pos_beeps[1] if curr_pos_beeps[1] else 0
-    #     max_prob_cells = self.temp_pred_crew_cells[self.max_prob]
-    #     max_prob_cells = sorted(max_prob_cells, key=lambda cell_pair: cell_pair[1], reverse=True)
-    #     max_prob_cells_len = len(max_prob_cells)
-    #     if len(self.last_pos) and curr_pos_fq:
-    #         last_pos_beeps = self.ship.get_cell(self.last_pos).crew_probs.track_beep
-    #         last_pos_fq = last_pos_beeps[0]/last_pos_beeps[1] if last_pos_beeps[1] else 0
-    #         check_beep_difference = last_pos_beeps[0]/curr_pos_beeps[0]
-    #         if curr_pos_fq < last_pos_fq:
-    #             self.pred_crew_cells.append(max_prob_cells[0][0])
-    #         elif curr_pos_fq < last_pos_fq:
-    #             pos = round(max_prob_cells_len/2)
-    #             self.pred_crew_cells.append(max_prob_cells[pos][0])
-    #         else: # always prefer exploring something close to you
-    #             self.pred_crew_cells.append(max_prob_cells[max_prob_cells_len-1][0])
-    #     else: # benefit of doubt, lets go somewhere close?
-    #         self.pred_crew_cells.append(choice(max_prob_cells)[0])
-
-
-    #     self.logger.print(LOG_DEBUG, f"The new pred crew cells are {self.pred_crew_cells}")
-    #     self.temp_pred_crew_cells.clear()
-    #     self.max_prob = 0.0
-    #     return
-
     def remove_cell(self, rem_cell):
         crew_search_data = self.crew_search_data
         if rem_cell not in crew_search_data.crew_cells:
@@ -1331,14 +1303,12 @@ class Bot_1(ParentBot):
         temp_search_data = self.temp_search_data
         temp_search_data.set_all_probs()
         alpha_num = 0.0
-        print_after = False
         if crew_search_data.normalize_probs <= 0:
             crew_search_data.normalize_probs = 0
             self.logger.print_all_crew_data(LOG_DEBUG, self)
             self.logger.print(LOG_DEBUG, "Using additive smoothing...")
             alpha_num = ADDITIVE_VALUE
             crew_search_data.normalize_probs += alpha_num * len(crew_search_data.crew_cells)
-            print_after = True
         elif crew_search_data.normalize_probs > 1.5:
             self.logger.print_all_crew_data(LOG_NONE, self)
             print("THERE WAS A MAJOR NEWS!!!!")
@@ -1362,13 +1332,14 @@ class Bot_1(ParentBot):
         crew_search_data.set_all_probs(temp_search_data.beep_prob, temp_search_data.no_beep_prob, temp_search_data.normalize_probs)
         self.logger.print_all_crew_data(LOG_DEBUG, self)
 
-    def update_cell_crew_probs(self, crew_probs, crew_search_data):
-        crew_probs.crew_given_beep = crew_probs.crew_and_beep/crew_search_data.beep_prob
-        if crew_search_data.no_beep_prob: # it is possible to never not hear beeps depending on how far we have searched. can norm if required.
-            crew_probs.crew_given_no_beep = crew_probs.crew_and_no_beep/crew_search_data.no_beep_prob
-        crew_probs.crew_prob = crew_probs.crew_given_beep if crew_search_data.is_beep_recv else crew_probs.crew_given_no_beep
+    def update_cell_crew_probs(self, crew_probs):
+        crew_probs.crew_given_beep = crew_probs.crew_and_beep/self.crew_search_data.beep_prob
+        if self.crew_search_data.no_beep_prob: # it is possible to never not hear beeps depending on how far we have searched. can norm if required.
+            crew_probs.crew_given_no_beep = crew_probs.crew_and_no_beep/self.crew_search_data.no_beep_prob
+        crew_probs.crew_prob = crew_probs.crew_given_beep if self.crew_search_data.is_beep_recv else crew_probs.crew_given_no_beep
         crew_probs.crew_and_beep = crew_probs.beep_given_crew*crew_probs.crew_prob
         crew_probs.crew_and_no_beep = crew_probs.no_beep_given_crew*crew_probs.crew_prob
+        self.temp_search_data.update_all_probs(crew_probs.crew_and_beep, crew_probs.crew_and_no_beep, crew_probs.crew_prob)
 
     def update_all_crew_probs(self):
         crew_search_data = self.crew_search_data
@@ -1393,8 +1364,7 @@ class Bot_1(ParentBot):
         for cell_cord in crew_search_data.crew_cells: # update probs for this round
             cell = self.ship.get_cell(cell_cord)
             crew_probs = cell.crew_probs
-            self.update_cell_crew_probs(crew_probs, crew_search_data)
-            temp_search_data.update_all_probs(crew_probs.crew_and_beep, crew_probs.crew_and_no_beep, crew_probs.crew_prob)
+            self.update_cell_crew_probs(crew_probs)
 
             if crew_probs.crew_prob > max_prob:
                 self.next_best_crew_cells.clear()
@@ -1421,13 +1391,12 @@ class Bot_3(Bot_1):
         super(Bot_3, self).__init__(ship, log_level)
         self.override_ship_details()
 
-    # should i reinit probs for bot_3?
     def is_rescued(self):
         old_val = self.pending_crew
         ret_val = super(Bot_3, self).is_rescued()
         if old_val != self.pending_crew:
             self.calc_initial_search_data()
-            self.is_bot_moved = False # reclalc above, need not do it again???
+            self.is_bot_moved = False # recalc already, need not do it again...
 
         return ret_val
 
@@ -1440,10 +1409,45 @@ class Bot_3(Bot_1):
         else:
             self.ship.get_cell(self.ship.crew_2).cell_type = CREW_CELL
 
-# class Bot_4(ParentBot):
-#     def __init__(self, ship, log_level = LOG_NONE):
-#         super(Bot_4, self).__init__(ship, log_level)
-#         self.crew_search_data = Two_Crew_Search_DS(ship)
+class Bot_4(ParentBot):
+    def __init__(self, ship, log_level = LOG_NONE):
+        super(Bot_4, self).__init__(ship, log_level)
+        self.crew_search_data = Two_Crew_Search_DS(ship)
+
+    def remove_nearby_cells(self):
+        return
+
+    def norm_probs(self):
+        crew_search_data = self.crew_search_data
+        temp_search_data = self.temp_search_data
+        temp_search_data.set_all_probs()
+        alpha_num = 0.0
+        print_after = False
+        if crew_search_data.normalize_probs <= 0:
+            print("")
+        elif crew_search_data.normalize_probs > 1.5:
+            self.logger.print_all_crew_data(LOG_NONE, self)
+            print("THERE WAS A MAJOR NEWS!!!!")
+            exit(0)
+
+
+    def update_all_crew_probs(self):
+        crew_search_data = self.crew_search_data
+        if not crew_search_data.is_beep_recv: # no beep heard
+            self.remove_nearby_cells()
+
+        if self.is_bot_moved or (crew_search_data.normalize_probs < 1): # normalize our probs
+            self.norm_probs()
+            self.is_bot_moved = False
+
+        self.logger.print_all_crew_data(LOG_DEBUG, self)
+
+    def update_crew_search_data(self):
+        self.update_all_crew_probs()
+
+        crew_search_data = self.crew_search_data
+        temp_search_data = self.temp_search_data
+
 
 #     def update_pred_crew_cells(self):
 #         self.pred_crew_cells.clear()
@@ -1687,6 +1691,7 @@ def run_multi_sim(alpha_range, is_print = False):
                     alpha_dict[alpha][i].total_moves += value[i].total_moves
                     alpha_dict[alpha][i].success += value[i].success
                     alpha_dict[alpha][i].failure += value[i].failure
+                    alpha_dict[alpha][i].stuck += value[i].stuck
                     alpha_dict[alpha][i].time_taken += value[i].time_taken
 
     for alpha, resc_val in alpha_dict.items():
@@ -1697,6 +1702,7 @@ def run_multi_sim(alpha_range, is_print = False):
             value.idle_moves = value.total_iter - value.total_moves
             value.success /= actual_iters
             value.failure /= actual_iters
+            value.stuck /= actual_iters
             value.time_taken /= actual_iters
     end = time()
 
@@ -1704,9 +1710,9 @@ def run_multi_sim(alpha_range, is_print = False):
         for alpha, resc_val in alpha_dict.items():
             print()
             print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took time {end-begin} for alpha {alpha}")
-            print ("%20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Distance", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
+            print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
             for itr, value in enumerate(resc_val):
-                print ("%20s %20s %20s %20s %20s %20s %20s %20s" % (BOT_NAMES[itr], value.success, value.failure, value.distance, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
+                print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s" % (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
     else:
         print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took total time {end-begin} for alpha range {alpha_dict.keys()}")
 
@@ -1719,14 +1725,14 @@ def compare_multiple_alpha():
     global ALPHA
     alpha_range = [round(ALPHA + (ALPHA_STEP_INCREASE * i), 2) for i in range(MAX_ALPHA_ITERATIONS)]
     alpha_dict = run_multi_sim(alpha_range)
-    print ("%20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Distance", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
+    print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
     for alpha, resc_val in alpha_dict.items():
         print(f"{'*'*82}{alpha}{'*'*82}")
         for itr, value in enumerate(resc_val):
-            print ("%20s %20s %20s %20s %20s %20s %20s %20s" % (BOT_NAMES[itr], value.success, value.failure, value.distance, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
+            print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s" % (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
 
 # MAJOR ISSUES WITH ALL BOTS!!
 if __name__ == '__main__':
-    run_test()
-    # run_multi_sim([ALPHA], True)
+    # run_test()
+    run_multi_sim([ALPHA], True)
     # compare_multiple_alpha()
