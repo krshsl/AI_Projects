@@ -1,9 +1,11 @@
 from random import randint, uniform, choice
 from math import e as exp
+from math import sqrt 
 from inspect import currentframe
 from matplotlib import pyplot
 from time import time
 from multiprocessing import Process, Queue, cpu_count
+from itertools import permutations
 
 #Constants
 CLOSED_CELL = 1
@@ -753,7 +755,31 @@ class SearchAlgo:
         self.logger = Logger(log_level)
         self.max_prob = 0.0
         self.temp_pred_crew_cells = dict()
+        self.to_visit_list = []
         self.place_aliens_handler()
+
+    def euclid_distance(self,point1, point2):
+        return sqrt((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)
+
+    def total_distance(self,points, path):
+        total = 0
+        for i in range(len(path) - 1):
+            total += self.euclid_distance(points[path[i]], points[path[i + 1]])
+        return total
+    
+    def shortest_route(self, points):
+        points.insert(0, self.curr_pos)
+        n = len(points)
+        shortest_distance = float('inf')
+        shortest_path = None
+        for path in permutations(range(n)):
+            dist = self.total_distance(points, path)
+            if dist < shortest_distance:
+                shortest_distance = dist
+                shortest_path = list(path)
+        next_point_index = shortest_path[1]
+        shortest_path_points = [points[i] for i in shortest_path]
+        return next_point_index, shortest_path_points
 
     def search_path(self, dest_cell, curr_pos = None, grid = None):
         if grid is None:
