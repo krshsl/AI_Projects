@@ -157,32 +157,6 @@ class Logger:
         pyplot.title("Beep recv" if is_beep_recv else "Beep not recv")
         pyplot.show()
 
-    def print_alien_probs(self, grid, is_beep_recv, curr_pos):
-        prob_grid = []
-        prob_spread = list()
-        for cells in grid:
-            prob_cell = []
-            for cell in cells:
-                if cell.cell_type == CLOSED_CELL:
-                    prob_cell.append(float('nan'))
-                elif cell.cell_type == (BOT_CELL|CREW_CELL):
-                    prob_cell.append(1)
-                else:
-                    prob_cell.append(cell.alien_probs.alien_prob)
-                    if not cell.alien_probs.alien_prob in prob_spread:
-                        prob_spread.append(cell.alien_probs.alien_prob)
-            prob_grid.append(prob_cell)
-
-        prob_spread.sort()
-        max_len = len(prob_spread) - 1
-        # prob_grid[curr_pos[0]][curr_pos[1]] = prob_spread[max_len]
-
-        pyplot.figure(figsize=(GRID_SIZE,GRID_SIZE))
-        pyplot.colorbar(pyplot.imshow(prob_grid, vmin=prob_spread[0], vmax=prob_spread[max_len]))
-        pyplot.title("Beep recv" if is_beep_recv else "Beep not recv")
-        pyplot.show()
-
-
 # Modularizing our knowledge base for readability
 class One_Alien_Evasion_Data:
     def __init__(self, ship):
