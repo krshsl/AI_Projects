@@ -1,7 +1,7 @@
 from random import randint, uniform, choice
 from math import e as exp, ceil, sqrt
 from inspect import currentframe
-from matplotlib import pyplot
+# from matplotlib import pyplot
 from time import time
 from multiprocessing import Process, Queue, cpu_count
 from itertools import permutations
@@ -27,13 +27,13 @@ BOT_STUCK = 3
 X_COORDINATE_SHIFT = [1, 0, 0, -1]
 Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 
-ALIEN_ZONE_SIZE = 5 # k - k >= 1, need to determine the large value
+ALIEN_ZONE_SIZE = 2 # k - k >= 1, need to determine the large value
 SEARCH_ZONE_SIZE = 5
 ALPHA = 0.5 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 4
 TOTAL_UNSAFE_CELLS = 5
 
-TOTAL_ITERATIONS = 10
+TOTAL_ITERATIONS = 5
 MAX_ALPHA_ITERATIONS = 10
 ALPHA_STEP_INCREASE = 0.05
 TOTAL_BOTS = 6
@@ -146,33 +146,33 @@ class Logger:
 
         self.print_crew_data(bot.curr_pos, bot.ship, bot.crew_search_data, bot.total_beep, bot.is_beep_recv)
 
-    def print_crew_probs(self, grid, is_beep_recv, curr_pos):
-        if IGNORE_GRID_DEBUG and not self.check_log_level(LOG_DEBUG_GRID):
-            return
+    # def print_crew_probs(self, grid, is_beep_recv, curr_pos):
+    #     if IGNORE_GRID_DEBUG and not self.check_log_level(LOG_DEBUG_GRID):
+    #         return
 
-        prob_grid = []
-        prob_spread = list()
-        for cells in grid:
-            prob_cell = []
-            for cell in cells:
-                if cell.cell_type == CLOSED_CELL:
-                    prob_cell.append(float('nan'))
-                elif cell.cell_type == (BOT_CELL|CREW_CELL):
-                    prob_cell.append(1)
-                else:
-                    prob_cell.append(cell.crew_probs.crew_prob)
-                    if not cell.crew_probs.crew_prob in prob_spread:
-                        prob_spread.append(cell.crew_probs.crew_prob)
-            prob_grid.append(prob_cell)
+    #     prob_grid = []
+    #     prob_spread = list()
+    #     for cells in grid:
+    #         prob_cell = []
+    #         for cell in cells:
+    #             if cell.cell_type == CLOSED_CELL:
+    #                 prob_cell.append(float('nan'))
+    #             elif cell.cell_type == (BOT_CELL|CREW_CELL):
+    #                 prob_cell.append(1)
+    #             else:
+    #                 prob_cell.append(cell.crew_probs.crew_prob)
+    #                 if not cell.crew_probs.crew_prob in prob_spread:
+    #                     prob_spread.append(cell.crew_probs.crew_prob)
+    #         prob_grid.append(prob_cell)
 
-        prob_spread.sort()
-        max_len = len(prob_spread) - 1
-        prob_grid[curr_pos[0]][curr_pos[1]] = prob_spread[max_len]
+    #     prob_spread.sort()
+    #     max_len = len(prob_spread) - 1
+    #     prob_grid[curr_pos[0]][curr_pos[1]] = prob_spread[max_len]
 
-        pyplot.figure(figsize=(10,10))
-        pyplot.colorbar(pyplot.imshow(prob_grid, vmin=prob_spread[0], vmax=prob_spread[max_len]))
-        pyplot.title("Beep recv" if is_beep_recv else "Beep not recv")
-        pyplot.show()
+    #     pyplot.figure(figsize=(10,10))
+    #     pyplot.colorbar(pyplot.imshow(prob_grid, vmin=prob_spread[0], vmax=prob_spread[max_len]))
+    #     pyplot.title("Beep recv" if is_beep_recv else "Beep not recv")
+    #     pyplot.show()
 
 # Modularizing our knowledge base for readability
 class One_Alien_Evasion_Data:
@@ -1040,35 +1040,35 @@ class ParentBot(SearchAlgo):
             safe_cells = sorted(safe_cells, key=lambda x: x[1], reverse=True)
             return [self.curr_pos, safe_cells[0][0]]
 
-    def print_prob_grid(self, plot = False):
-        is_beep_recv = self.alien_evasion_data.is_beep_recv
-        # curr_pos = self.curr_pos
-        prob_grid = []
-        prob_spread = list()
-        grid = self.ship.grid
-        for i, cells in enumerate(grid):
-            prob_cell = []
-            for j, cell in enumerate(cells):
-                if cell.cell_type == CLOSED_CELL:
-                    prob_cell.append(float('nan'))
-                    print(f'[{i}][{j}]: C', end=' ')
-                else:
-                    print(f'[{i}][{j}]: {cell.alien_probs.alien_prob}', end=' ')
-                    prob_cell.append(cell.alien_probs.alien_prob)
-                    if not cell.alien_probs.alien_prob in prob_spread:
-                        prob_spread.append(cell.alien_probs.alien_prob)
+    # def print_prob_grid(self, plot = False):
+    #     is_beep_recv = self.alien_evasion_data.is_beep_recv
+    #     # curr_pos = self.curr_pos
+    #     prob_grid = []
+    #     prob_spread = list()
+    #     grid = self.ship.grid
+    #     for i, cells in enumerate(grid):
+    #         prob_cell = []
+    #         for j, cell in enumerate(cells):
+    #             if cell.cell_type == CLOSED_CELL:
+    #                 prob_cell.append(float('nan'))
+    #                 print(f'[{i}][{j}]: C', end=' ')
+    #             else:
+    #                 print(f'[{i}][{j}]: {cell.alien_probs.alien_prob}', end=' ')
+    #                 prob_cell.append(cell.alien_probs.alien_prob)
+    #                 if not cell.alien_probs.alien_prob in prob_spread:
+    #                     prob_spread.append(cell.alien_probs.alien_prob)
 
-            prob_grid.append(prob_cell)
-            print()
+    #         prob_grid.append(prob_cell)
+    #         print()
 
-        prob_spread.sort()
-        max_len = len(prob_spread) - 1
-        # prob_grid[curr_pos[0]][curr_pos[1]] = 0
-        if plot:
-            pyplot.figure(figsize=(35,35))
-            pyplot.colorbar(pyplot.imshow(prob_grid, vmin=prob_spread[0], vmax=prob_spread[max_len]))
-            pyplot.title("Beep recv" if is_beep_recv else "Beep not recv")
-            pyplot.show()
+    #     prob_spread.sort()
+    #     max_len = len(prob_spread) - 1
+    #     # prob_grid[curr_pos[0]][curr_pos[1]] = 0
+    #     if plot:
+    #         pyplot.figure(figsize=(35,35))
+    #         pyplot.colorbar(pyplot.imshow(prob_grid, vmin=prob_spread[0], vmax=prob_spread[max_len]))
+    #         pyplot.title("Beep recv" if is_beep_recv else "Beep not recv")
+    #         pyplot.show()
 
     '''
         If beep heard, cells within detection zone: P(B obs /A) = 1
@@ -1416,7 +1416,7 @@ class ParentBot(SearchAlgo):
 
         while (True): # Keep trying till you find the crew
             if total_iter >= 1000:
-                return init_distance, total_iter, total_moves, BOT_STUCK
+                return init_distance, total_iter, total_moves, BOT_STUCK, (self.total_crew_to_save - len(self.all_crews))
 
             total_iter += 1
             idle_steps += 1
@@ -1436,10 +1436,10 @@ class ParentBot(SearchAlgo):
             if keep_moving:
                 if self.move_bot():
                     if self.is_rescued():
-                        return init_distance, total_iter, total_moves, BOT_SUCCESS
+                        return init_distance, total_iter, total_moves, BOT_SUCCESS, (self.total_crew_to_save - len(self.all_crews))
 
                     elif self.is_caught:
-                        return init_distance, total_iter, total_moves, BOT_FAILED
+                        return init_distance, total_iter, total_moves, BOT_FAILED, (self.total_crew_to_save - len(self.all_crews))
 
                     self.is_bot_moved = True
                     total_moves += 1
@@ -1452,7 +1452,7 @@ class ParentBot(SearchAlgo):
                     self.made_move = False
 
             if self.ship.move_aliens(self):
-                return init_distance, total_iter, total_moves, BOT_FAILED
+                return init_distance, total_iter, total_moves, BOT_FAILED, (self.total_crew_to_save - len(self.all_crews))
 
     def max_alien_beep(self):
         k = ALIEN_ZONE_SIZE
@@ -1687,7 +1687,7 @@ class Bot_4(ParentBot):
         old_val = self.pending_crew
         ret_val = super(Bot_4, self).is_rescued()
         if old_val != self.pending_crew and len(self.all_crews):
-            self.crew_search_data.retain_success_cell_probs(self.curr_pos, self.all_crews[0], self.logger)
+            self.crew_search_data.retain_success_cell_probs(self.curr_pos, self.pending_crew, self.logger)
             self.rem_cell_for_crew_search(self.ship.get_cell(self.curr_pos))
 
         return ret_val
@@ -1912,6 +1912,7 @@ class FINAL_OUT:
         self.stuck = 0
         self.stuck_steps = 0
         self.time_taken = 0.0
+        self.crews_saved = 0
         pass
 
 # Runs n number of iteration for each bot for given alpha value
@@ -1942,6 +1943,7 @@ def run_sim(iterations_range, queue, alpha_range):
                 else:
                     temp_data_set[bot_no].stuck += 1
                     temp_data_set[bot_no].stuck_steps += ret_vals[1]
+                temp_data_set[bot_no].crews_saved += ret_vals[4]
                 temp_data_set[bot_no].time_taken += (end-begin)
                 ship.reset_grid()
                 del bot
@@ -1991,12 +1993,16 @@ def run_multi_sim(alpha_range, is_print = False):
             value.total_iter /= actual_iters
             value.total_moves /= actual_iters
             value.idle_moves = value.total_iter - value.total_moves
-            value.success_steps /= value.success
+            if value.success:
+                value.success_steps /= value.success
             value.success /= actual_iters
-            value.failure_steps /= value.failure
+            if value.failure:
+                value.failure_steps /= value.failure
             value.failure /= actual_iters
-            value.stuck_steps /= value.stuck
+            if value.stuck:
+                value.stuck_steps /= value.stuck
             value.stuck /= actual_iters
+            value.crews_saved /= actual_iters
             value.time_taken /= actual_iters
     end = time()
 
@@ -2004,9 +2010,9 @@ def run_multi_sim(alpha_range, is_print = False):
         for alpha, resc_val in alpha_dict.items():
             print()
             print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took time {end-begin} for alpha {alpha}")
-            print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Success steps", "Failure steps", "Stuck steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
+            print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Crews Saved", "Success steps", "Failure steps", "Stuck steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
             for itr, value in enumerate(resc_val):
-                print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
+                print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.crews_saved, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
     else:
         print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took total time {end-begin} for alpha range {alpha_dict.keys()}")
 
@@ -2019,11 +2025,11 @@ def compare_multiple_alpha():
     global ALPHA
     alpha_range = [round(ALPHA + (ALPHA_STEP_INCREASE * i), 2) for i in range(MAX_ALPHA_ITERATIONS)]
     alpha_dict = run_multi_sim(alpha_range)
-    print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Success steps", "Failure steps", "stuck Steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
+    print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Crews Saved", "Success steps", "Failure steps", "stuck Steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
     for alpha, resc_val in alpha_dict.items():
         print(f"{'*'*82}{alpha}{'*'*82}")
         for itr, value in enumerate(resc_val):
-            print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" %  (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
+            print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" %  (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.crews_saved, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
 
 # MAJOR ISSUES WITH ALL BOTS!!
 if __name__ == '__main__':
