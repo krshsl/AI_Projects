@@ -1420,9 +1420,13 @@ class ParentBot(SearchAlgo):
 
             total_iter += 1
             idle_steps += 1
+            self.handle_alien_beep()
             self.handle_crew_beep()
 
+            if self.alien_evasion_data.beep_count > 0:
+                self.compute_likely_alien_movements()
 
+            self.update_alien_data()
             self.update_crew_search_data()
 
             if idle_steps >= self.idle_threshold or self.alien_evasion_data.beep_count > 0:
@@ -1434,6 +1438,8 @@ class ParentBot(SearchAlgo):
                     if self.is_rescued():
                         return init_distance, total_iter, total_moves, BOT_SUCCESS
 
+                    elif self.is_caught:
+                        return init_distance, total_iter, total_moves, BOT_FAILED
 
                     self.is_bot_moved = True
                     total_moves += 1
@@ -1445,6 +1451,8 @@ class ParentBot(SearchAlgo):
                     keep_moving = False
                     self.made_move = False
 
+            if self.ship.move_aliens(self):
+                return init_distance, total_iter, total_moves, BOT_FAILED
 
     def max_alien_beep(self):
         k = ALIEN_ZONE_SIZE
