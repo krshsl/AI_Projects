@@ -216,8 +216,6 @@ class Two_Alien_Evasion_Data(One_Alien_Evasion_Data):
         super(Two_Alien_Evasion_Data, self).__init__(ship)
 
     def reset_alien_calcs(self):
-        # Need to change this logic (1.5 secs everytime)
-
         # reset new cell pairs to zero
         # set old cell pairs to 1/init_alien_cell_size
         len_alien_cell_pair = (self.init_alien_cell_size * (self.init_alien_cell_size - 1))/2
@@ -1134,9 +1132,6 @@ class ParentBot(SearchAlgo):
                 self.unsafe_cells.extend(unsafe_neighbours)
 
 
-            self.unsafe_cells = [prob_cell[1] for prob_cell in prob_cell_list]
-
-
     def compute_likely_alien_movements(self):
         beep_recv = self.alien_evasion_data.is_beep_recv
         beep_count = self.alien_evasion_data.beep_count
@@ -1416,6 +1411,7 @@ class ParentBot(SearchAlgo):
         self.logger.print_all_crew_data(LOG_DEBUG, self)
 
         while (True): # Keep trying till you find the crew
+            print(total_iter)
             if total_iter >= 1000:
                 saved = self.total_crew_to_save - len(self.all_crews)
                 if saved == -1:
@@ -1717,148 +1713,151 @@ class Bot_6(Bot_3):
     def __init__(self, ship, log_level=LOG_NONE):
         super(Bot_6, self).__init__(ship, log_level)
 
-# class Bot_7(Bot_4):
-#     alien_config = TWO_ALIENS
+class Bot_7(Bot_4):
+    alien_config = TWO_ALIENS
 
-#     def __init__(self, ship, log_level=LOG_NONE):
-#         super(Bot_7, self).__init__(ship, log_level)
-#         print('Now')
-#         self.alien_evasion_data = Two_Alien_Evasion_Data(self.ship)
-#         print('Done')
+    def __init__(self, ship, log_level=LOG_NONE):
+        super(Bot_7, self).__init__(ship, log_level)
+        self.alien_evasion_data = Two_Alien_Evasion_Data(self.ship)
+    
+    def get_initial_compute_cell_pairs(self):
+        return self.alien_evasion_data.alien_cell_pair_list
 
-#     def compute_likely_alien_movements(self):
-#         print(f'Alien cell pair list ::{len(self.alien_evasion_data.alien_cell_pair_list)}')
-#         alien_cell_pair_list = self.alien_evasion_data.alien_cell_pair_list
+    def compute_likely_alien_movements(self):
+        start = time()
+        beep_recv = self.alien_evasion_data.is_beep_recv
+        beep_count = self.alien_evasion_data.beep_count
 
-#         prob_cell_pair_mapping = dict()
+        if (beep_count == 1) and beep_recv:
+            self.present_alien_cells = self.get_initial_compute_cell_pairs()
 
-#         # for key_val_cells in alien_cell_pair_list:
-#         #     possible_moves = dict()
-#         #     cell_pair = self.alien_evasion_data.alien_cells_pair[key_val_cells]
-#         #     no_moves = 0
-#         #     self.logger.print(
-#         #         LOG_DEBUG, f"Iterating for ::{cell.cord}"
-#         #     )
-#         #     cell_1 = cell_pair.cell_1
-#         #     cell_2 = cell_pair.cell_2
+        self.alien_evasion_data.alien_movement_cells = set()
 
-#         #     total_moves = 1
-#         #     for cell in [cell_1, cell_2]:
-#         #         if len(cell.adj_cells) == 0:
-#         #             no_moves += 1
-#         #             continue
-#         #         possible_moves[cell.cord] = cell.adj_cells
-#         #         total_moves *= len(possible_moves[cell.cord])
+        present_alien_cells = self.alien_evasion_data.present_alien_cells
 
-#         #     if ((cell_pair.alien_probs.alien_prob == ALIEN_NOT_PRESENT) or
-#         #         (no_moves == 2)):
-#         #         continue
+        prob_cell_pair_mapping = dict()
 
-#         #     if key_val_cells not in prob_cell_pair_mapping.keys():
-#         #         prob_cell_pair_mapping[key_val_cells] = cell_pair.alien_probs.alien_prob
-#         #         cell_pair.alien_probs.alien_prob = 0
+        for key_val_cells in present_alien_cells:
+            possible_moves = dict()
+            cell_pair = self.alien_evasion_data.alien_cells_pair[key_val_cells]
+            no_moves = 0
+            self.logger.print(
+                LOG_DEBUG, f"Iterating for ::{cell.cord}"
+            )
+            cell_1 = cell_pair.cell_1
+            cell_2 = cell_pair.cell_2
 
-#         #     self.logger.print(
-#         #         LOG_DEBUG, f"prob_cell_mapping::{prob_cell_pair_mapping}"
-#         #     )
+            total_moves = 1
+            for cell in [cell_1, cell_2]:
+                if len(cell.adj_cells) == 0:
+                    no_moves += 1
+                    continue
+                possible_moves[cell.cord] = cell.adj_cells
+                total_moves *= len(possible_moves[cell.cord])
 
-#         #     self.logger.print(
-#         #         LOG_DEBUG, f"Neighbours for the current cell pair::{possible_moves}"
-#         #     )
+            if ((no_moves == 2)):
+                continue
 
-#         #     for alien_moves_1 in possible_moves[cell_1.cord]:
-#         #         for alien_moves_2 in possible_moves[cell_2.cord]:
-#         #             if alien_moves_1 == alien_moves_2:
-#         #                 continue
-#         #             adj_key_val_cell = tuple(set(alien_moves_1, alien_moves_2))
-#         #             adj_cell_pair = self.alien_evasion_data.alien_cells_pair[adj_key_val_cell]
-#         #             if adj_key_val_cell not in prob_cell_pair_mapping.keys():
-#         #                 prob_cell_pair_mapping[adj_key_val_cell] = adj_cell_pair.alien_probs.alien_prob
-#         #                 adj_cell_pair.alien_probs.alien_prob = 0
-#         #             adj_cell_pair.alien_probs.alien_prob += prob_cell_pair_mapping[cell.cord]/total_moves
+            if key_val_cells not in prob_cell_pair_mapping.keys():
+                prob_cell_pair_mapping[key_val_cells] = cell_pair.alien_probs.alien_prob
+                cell_pair.alien_probs.alien_prob = 0
 
-#         #     possible_moves.clear()
+            self.logger.print(
+                LOG_DEBUG, f"prob_cell_mapping::{prob_cell_pair_mapping}"
+            )
 
-#         prob_cell_pair_mapping.clear()
+            self.logger.print(
+                LOG_DEBUG, f"Neighbours for the current cell pair::{possible_moves}"
+            )
+
+            # Cell pair movement logic
+            for alien_moves_1 in possible_moves[cell_1.cord]:
+                for alien_moves_2 in possible_moves[cell_2.cord]:
+                    if alien_moves_1 == alien_moves_2:
+                        continue
+                    adj_key_val_cell = tuple(set(alien_moves_1, alien_moves_2))
+                    adj_cell_pair = self.alien_evasion_data.alien_cells_pair[adj_key_val_cell]
+                    if adj_key_val_cell not in prob_cell_pair_mapping.keys():
+                        prob_cell_pair_mapping[adj_key_val_cell] = adj_cell_pair.alien_probs.alien_prob
+                        adj_cell_pair.alien_probs.alien_prob = 0
+                    self.alien_evasion_data.alien_movement_cells.add(adj_key_val_cell)
+                    adj_cell_pair.alien_probs.alien_prob += prob_cell_pair_mapping[cell.cord]/total_moves
+
+            possible_moves.clear()
+
+        prob_cell_pair_mapping.clear()
+        end = time()
+        if beep_count == 1 and beep_recv:
+            print(f'Time taken to complete {start - end} s')
 
 
-#     def update_alien_data(self):
-#         if COMPUTE_MOVEMENT_LIMIT:
-#             if self.made_move:
-#                 self.alien_evasion_data.reset_alien_calcs()
-#             print('Reset alien calcs time')
-#         else:
-#             print('Update data time')
-#             alien_cell_pair_list = self.alien_evasion_data.alien_cell_pair_list
-#             beep_recv = self.alien_evasion_data.is_beep_recv
-#             self.alien_evasion_data.beep_prob = 0
-#             prob_cell_list = list()
-#             visited_set = set()
+    def update_alien_data(self):
+        if (self.alien_evasion_data.beep_count == 0):
+            if self.made_move:
+                self.alien_evasion_data.reset_alien_calcs()
+        else:
+            start = time()
+            beep_recv = self.alien_evasion_data.is_beep_recv
+            self.alien_evasion_data.beep_prob = 0
+            prob_cell_list = list()
+            present_alien_cells = list()
+            visited_cells = set()
 
-#             prob_alien_in_inner_cells = ALIEN_PRESENT if beep_recv else ALIEN_NOT_PRESENT
-#             prob_alien_in_outer_cells = ALIEN_PRESENT if (not beep_recv) else ALIEN_NOT_PRESENT
-#             total_unsafe_cells = self.alien_config * TOTAL_UNSAFE_CELLS
+            prob_alien_in_inner_cells = ALIEN_PRESENT if beep_recv else ALIEN_NOT_PRESENT
+            prob_alien_in_outer_cells = ALIEN_PRESENT if (not beep_recv) else ALIEN_NOT_PRESENT
 
-#             # Likelihood computation
-#             for cell_pair_key in alien_cell_pair_list:
-#                 cell_pair = self.alien_evasion_data.alien_cells_pair[cell_pair_key]
-#                 cell_1 = cell_pair.cell_1
-#                 cell_2 = cell_pair.cell_2
-#                 cell_1.alien_probs.alien_prob = 0
-#                 cell_2.alien_probs.alien_prob = 0
-#                 prob_beep_gv_alien = prob_alien_in_inner_cells if (cell_1.within_detection_zone or cell_2.within_detection_zone) else prob_alien_in_outer_cells
-#                 if cell_pair.alien_probs.alien_prob == ALIEN_NOT_PRESENT or (
-#                     prob_beep_gv_alien == ALIEN_NOT_PRESENT) or (
-#                     self.curr_pos in cell_pair.cells):
+            # Likelihood computation
+            for cell_pair_key in self.alien_evasion_data.alien_movement_cells:
+                cell_pair = self.alien_evasion_data.alien_cells_pair[cell_pair_key]
+                cell_1 = cell_pair.cell_1
+                cell_2 = cell_pair.cell_2
+                cell_1.alien_probs.alien_prob = 0
+                cell_2.alien_probs.alien_prob = 0
 
-#                     cell_pair.alien_probs.alien_and_beep = ALIEN_NOT_PRESENT
-#                     continue
-#             for key, cell_pairs in alien_cells_pair:
-#                 for cell_pair in cell_pairs:
-#                     cell_1 = cell_pair.cell_1
-#                     cell_2 = cell_pair.cell_2
-#                     cell_1.alien_probs.alien_prob = 0
-#                     cell_2.alien_probs.alien_prob = 0
-#                     prob_beep_gv_alien = prob_alien_in_inner_cells if (cell_1.within_detection_zone or cell_2.within_detection_zone) else prob_alien_in_outer_cells
-#                     if cell_pair.alien_probs.alien_prob == ALIEN_NOT_PRESENT or (
-#                         prob_beep_gv_alien == ALIEN_NOT_PRESENT) or (
-#                         self.curr_pos in cell_pair.cells):
 
-#                         cell_pair.alien_probs.alien_and_beep = ALIEN_NOT_PRESENT
-#                         continue
+                prob_beep_gv_alien = prob_alien_in_inner_cells if (cell_1.within_detection_zone or cell_2.within_detection_zone) else prob_alien_in_outer_cells
+                if (self.curr_pos in cell_pair.cells) or (prob_beep_gv_alien == ALIEN_NOT_PRESENT):
+                    cell_pair.alien_probs.alien_prob = ALIEN_NOT_PRESENT
+                    continue
 
-#                 alien_prob = cell_pair.alien_probs.alien_prob
-#                 cell_pair.alien_probs.alien_and_beep = prob_beep_gv_alien * alien_prob
-#                 self.alien_evasion_data.beep_prob += cell_pair.alien_probs.alien_and_beep
-#                 # self.alien_evasion_data.present_alien_cells.append(cell)
+                alien_prob = cell_pair.alien_probs.alien_prob
+                cell_pair.alien_probs.alien_and_beep = prob_beep_gv_alien * alien_prob
+                self.alien_evasion_data.beep_prob += cell_pair.alien_probs.alien_and_beep
+                present_alien_cells.append(cell_pair_key)
 
-#             # Updating the alien prob from prior knowledge
-#             for cell_pair_key in alien_cell_pair_list:
-#                 cell_pair = self.alien_evasion_data.alien_cells_pair[cell_pair_key]
-#                 if cell_pair.alien_probs.alien_and_beep == ALIEN_NOT_PRESENT:
-#                     cell_pair.alien_probs.alien_prob = ALIEN_NOT_PRESENT
-#                     # self.alien_evasion_data.present_alien_cells.remove(cell)
-#                     continue
+            # Updating the alien prob from prior knowledge
+            for cell_pair_key in present_alien_cells:
+                cell_pair = self.alien_evasion_data.alien_cells_pair[cell_pair_key]
+                cell_pair.alien_probs.alien_prob = cell_pair.alien_probs.alien_and_beep/self.alien_evasion_data.beep_prob
+                for cell_cord in cell_pair.cells:
+                    # dist_cell = get_manhattan_distance(self.curr_pos, cell_cord)
+                    prob = cell_pair.alien_probs.alien_prob
+                    cell = self.ship.get_cell(cell_cord)
+                    cell.alien_probs.alien_prob += prob
+                    visited_cells.add(cell)
 
-#                 cell_pair.alien_probs.alien_prob = cell_pair.alien_probs.alien_and_beep/self.alien_evasion_data.beep_prob
-#                 if not beep_recv:
-#                     for cell_cord in cell_pair.cells:
-#                         prob = cell_pair.alien_probs.alien_prob
-#                         cell = self.ship.get_cell(cell_cord)
-#                         cell.alien_probs.alien_prob += prob
-#                         # Set the top most likely alien cells
-#                         if (len(prob_cell_list) < total_unsafe_cells):
-#                             prob_cell_list.append((prob, cell_cord))
-#                             prob_cell_list = sorted(prob_cell_list, key=lambda x: x[0], reverse=True)
-#                         elif prob > prob_cell_list[-1][0]:
-#                             prob_cell_list.remove(prob_cell_list[-1])
-#                             prob_cell_list.append((prob, cell_cord))
-#                             prob_cell_list = sorted(prob_cell_list, key=lambda x: x[0], reverse=True)
+            for cell_cord in visited_cells:
+                dist_cell = get_manhattan_distance(self.curr_pos, cell_cord)
+                cell = self.ship.get_cell(cell_cord)
+                prob_cell_list.append((cell.alien_probs.alien_prob, cell_cord, dist_cell))
 
-#             self.unsafe_cells = [prob_cell[1] for prob_cell in prob_cell_list]
-
-#             end = time()
-#             print(f'reset_alien_calcs time :: {end - start} seconds')
+            # Sorting by probability, used to track movements under limitation etc
+            # cells_by_distance = sorted(prob_cell_list, key=lambda x: x[2], reverse=True)
+            self.alien_evasion_data.present_alien_cells = present_alien_cells
+            if self.alien_evasion_data.beep_count > 0:
+                prob_cell_list = sorted(prob_cell_list, key=lambda x: x[0], reverse=True)
+                self.unsafe_cells = [cell[1] for cell in prob_cell_list]
+                if not beep_recv:
+                    self.unsafe_cells = self.unsafe_cells[:TOTAL_UNSAFE_CELLS]
+                
+                unsafe_neighbours = list()
+                for cell_cord in self.unsafe_cells:
+                    cell = self.ship.get_cell(cell_cord)
+                    unsafe_neighbours.append(cell.adj_cells)
+                self.unsafe_cells.extend(unsafe_neighbours)
+            
+            end = time()
+            print(f'Time taken UAD :: {start - end}')
 
 
 
@@ -1870,7 +1869,8 @@ BOT_NAMES = {
     2 : "bot_3",
     3 : "bot_4",
     4 : "bot_5",
-    5 : "bot_6"
+    5 : "bot_6",
+    6 : "bot_7"
 }
 
 # Responsible for updating the alpha for each worker pool
@@ -1893,6 +1893,8 @@ def bot_factory(itr, ship, log_level = LOG_NONE):
         return Bot_5(ship, log_level)
     elif (itr == 5):
         return Bot_6(ship, log_level)
+    if (itr == 0):
+        return Bot_7(ship, log_level)
     return ParentBot(ship, log_level)
 
 # Test function
@@ -1901,7 +1903,7 @@ def run_test(log_level = LOG_INFO):
     for itr in range(1):
         ship = Ship(GRID_SIZE, log_level)
         ship.place_players()
-        for i in range(TOTAL_BOTS):
+        for i in range(1):
             print(BOT_NAMES[i], i)
             begin = time()
             bot = bot_factory(i, ship, log_level)
@@ -2047,6 +2049,6 @@ def compare_multiple_alpha():
 
 # MAJOR ISSUES WITH ALL BOTS!!
 if __name__ == '__main__':
-    # run_test()
-    run_multi_sim([ALPHA], True)
+    run_test()
+    # run_multi_sim([ALPHA], True)
     # compare_multiple_alpha()
