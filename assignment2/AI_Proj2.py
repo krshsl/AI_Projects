@@ -33,10 +33,10 @@ ALPHA = 0.5 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 4
 TOTAL_UNSAFE_CELLS = 5
 
-TOTAL_ITERATIONS = 100
+TOTAL_ITERATIONS = 10
 MAX_ALPHA_ITERATIONS = 10
 ALPHA_STEP_INCREASE = 0.05
-TOTAL_BOTS = 2
+TOTAL_BOTS = 6
 
 COMPUTE_MOVEMENT_LIMIT = {
     1 : 350,
@@ -53,8 +53,8 @@ IGNORE_GRID_DEBUG = True
 LOOKUP_E = []
 LOOKUP_NOT_E = []
 
-ALIEN_NOT_PRESENT = 0
-ALIEN_PRESENT = 1
+ALIEN_NOT_PRESENT = 0.0
+ALIEN_PRESENT = 1.0
 
 ONE_ALIEN = 1
 TWO_ALIENS = 2
@@ -189,7 +189,7 @@ class One_Alien_Evasion_Data:
         self.present_alien_cells = []
         self.alien_movement_cells = set()
         self.is_beep_recv = False
-        self.beep_prob = 0
+        self.beep_prob = 0.0
         self.beep_count = 0
 
         self.init_alien_cell_size = len(self.init_alien_cells)
@@ -1121,9 +1121,15 @@ class ParentBot(SearchAlgo):
                 self.alien_evasion_data.beep_prob += cell.alien_probs.alien_and_beep
                 present_alien_cells.append(cell_cord)
 
+            is_additive_amoothing = False
+            if not self.alien_evasion_data.beep_prob:
+                self.alien_evasion_data.beep_prob = ADDITIVE_VALUE * len(present_alien_cells)
+
             # Updating the alien prob from prior knowledge
             for cell_cord in present_alien_cells:
                 cell = self.ship.get_cell(cell_cord)
+                if is_additive_amoothing:
+                    cell.alien_probs.alien_and_beep += ADDITIVE_VALUE
                 cell.alien_probs.alien_prob = cell.alien_probs.alien_and_beep/self.alien_evasion_data.beep_prob
                 prob_cell_list.append((cell.alien_probs.alien_prob, cell_cord))
 
@@ -1278,18 +1284,27 @@ class ParentBot(SearchAlgo):
     def get_best_zone(self):
         zone_as_list = []
         self.track_zones.clear()
-        for key in self.zone_vs_zone_prob:
+        for key in sorted(self.zone_vs_zone_prob, reverse=True):
+            # if key in self.crew_search_data.all_crew_zones:
             zone_as_list.append((key, self.zone_vs_zone_prob[key]))
 
-        zone_as_list = sorted(zone_as_list, key=lambda data:-data[1])
+        # zone_as_list = sorted(zone_as_list, key=lambda data:-data[1])
 
         # point to check, is it worth visiting a zone, if the zone value changes???
         if self.total_crew_to_save == 2: # for 2 crews, 2 zones can have a very high prob
-            zone_1 = sorted(self.crew_search_data.all_crew_zones[zone_as_list[0][0]], key=lambda cell:(-self.ship.get_cell(cell).crew_probs.crew_prob, self.ship.get_cell(cell).crew_probs.bot_distance))[:4]
-            zone_2 = sorted(self.crew_search_data.all_crew_zones[zone_as_list[1][0]], key=lambda cell:(-self.ship.get_cell(cell).crew_probs.crew_prob, self.ship.get_cell(cell).crew_probs.bot_distance))[:4]
+            max_size = 8
+            zone_2 = []
+            if len(zone_as_list) > 1:
+                max_size = 4
+                zone_2 = sorted(self.crew_search_data.all_crew_zones[zone_as_list[1][0]], key=lambda cell:(-self.ship.get_cell(cell).crew_probs.crew_prob, self.ship.get_cell(cell).crew_probs.bot_distance))[:max_size]
+                self.track_zones[zone_as_list[0][1]] = (zone_2, self.zone_vs_zone_prob[zone_as_list[1][0]])
+
+            zone_1 = sorted(self.crew_search_data.all_crew_zones[zone_as_list[0][0]], key=lambda cell:(-self.ship.get_cell(cell).crew_probs.crew_prob, self.ship.get_cell(cell).crew_probs.bot_distance))[:max_size]
+            # print(zone_as_list, self.track_zones)
             self.track_zones[zone_as_list[0][0]] = (zone_1, self.zone_vs_zone_prob[zone_as_list[0][0]])
-            self.track_zones[zone_as_list[0][1]] = (zone_2, self.zone_vs_zone_prob[zone_as_list[0][1]])
-            return zone_1.extend(zone_2)
+            if len(zone_2) > 0:
+                zone_1.extend(zone_2)
+            return zone_1
         else:
             zone_1 = sorted(self.crew_search_data.all_crew_zones[zone_as_list[0][0]], key=lambda cell:(-self.ship.get_cell(cell).crew_probs.crew_prob, self.ship.get_cell(cell).crew_probs.bot_distance))[:6]
             self.track_zones[zone_as_list[0][0]] = (zone_1, self.zone_vs_zone_prob[zone_as_list[0][0]])
@@ -1315,6 +1330,9 @@ class ParentBot(SearchAlgo):
 
         dest = self.to_visit_list[0]
         zone_number = self.ship.get_cell(dest).zone_number
+        if zone_number not in self.track_zones:
+            return False
+
         if not zone_number in self.zone_vs_zone_prob:
             for element in self.track_zones[zone_number][0]:
                 if element in self.to_visit_list:
@@ -1882,7 +1900,7 @@ def bot_factory(itr, ship, log_level = LOG_NONE):
 # Test function
 def run_test(log_level = LOG_INFO):
     update_lookup(ALPHA)
-    for itr in range(10):
+    for itr in range(1):
         ship = Ship(GRID_SIZE, log_level)
         ship.place_players()
         for i in range(TOTAL_BOTS):
@@ -2024,6 +2042,6 @@ def compare_multiple_alpha():
 
 # MAJOR ISSUES WITH ALL BOTS!!
 if __name__ == '__main__':
-    # run_test()
-    run_multi_sim([ALPHA], True)
+    run_test()
+    # run_multi_sim([ALPHA], True)
     # compare_multiple_alpha()
