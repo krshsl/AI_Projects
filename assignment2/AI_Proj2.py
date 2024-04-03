@@ -27,7 +27,7 @@ BOT_STUCK = 3
 X_COORDINATE_SHIFT = [1, 0, 0, -1]
 Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 
-ALIEN_ZONE_SIZE = 2 # k - k >= 1, need to determine the large value
+ALIEN_ZONE_SIZE = 5 # k - k >= 1, need to determine the large value
 SEARCH_ZONE_SIZE = 5
 ALPHA = 0.5 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 4
@@ -1125,7 +1125,7 @@ class ParentBot(SearchAlgo):
                 self.unsafe_cells = [cell[1] for cell in prob_cell_list]
                 if not beep_recv:
                     self.unsafe_cells = self.unsafe_cells[:TOTAL_UNSAFE_CELLS]
-                
+
                 unsafe_neighbours = list()
                 for cell_cord in self.unsafe_cells:
                     cell = self.ship.get_cell(cell_cord)
@@ -1353,7 +1353,7 @@ class ParentBot(SearchAlgo):
             if self.traverse_path:
                 return True
             return False
-            
+
         if self.alien_evasion_data.beep_count > 0:
             if self.traverse_path:
                 if self.is_own_design:
@@ -1400,7 +1400,7 @@ class ParentBot(SearchAlgo):
             if len(self.traverse_path) == 0:
                 self.logger.print(LOG_DEBUG, f"Unable to find a path....")
                 return False
-            
+
             self.to_visit_list.pop(0)
             self.traverse_path.pop(0)
             self.logger.print(LOG_DEBUG, f"New path to cell {prob_crew_cell} was found, {self.traverse_path}")
@@ -1420,13 +1420,9 @@ class ParentBot(SearchAlgo):
 
             total_iter += 1
             idle_steps += 1
-            self.handle_alien_beep()
             self.handle_crew_beep()
 
-            if self.alien_evasion_data.beep_count > 0:
-                self.compute_likely_alien_movements()
 
-            self.update_alien_data()
             self.update_crew_search_data()
 
             if idle_steps >= self.idle_threshold or self.alien_evasion_data.beep_count > 0:
@@ -1438,8 +1434,6 @@ class ParentBot(SearchAlgo):
                     if self.is_rescued():
                         return init_distance, total_iter, total_moves, BOT_SUCCESS
 
-                    elif self.is_caught:
-                        return init_distance, total_iter, total_moves, BOT_FAILED
 
                     self.is_bot_moved = True
                     total_moves += 1
@@ -1451,8 +1445,6 @@ class ParentBot(SearchAlgo):
                     keep_moving = False
                     self.made_move = False
 
-            if self.ship.move_aliens(self):
-                return init_distance, total_iter, total_moves, BOT_FAILED
 
     def max_alien_beep(self):
         k = ALIEN_ZONE_SIZE
@@ -1991,12 +1983,12 @@ def run_multi_sim(alpha_range, is_print = False):
             value.total_iter /= actual_iters
             value.total_moves /= actual_iters
             value.idle_moves = value.total_iter - value.total_moves
+            value.success_steps /= value.success
             value.success /= actual_iters
-            value.success_steps /= actual_iters
+            value.failure_steps /= value.failure
             value.failure /= actual_iters
-            value.failure_steps /= actual_iters
+            value.stuck_steps /= value.stuck
             value.stuck /= actual_iters
-            value.stuck_steps /= actual_iters
             value.time_taken /= actual_iters
     end = time()
 
@@ -2004,7 +1996,7 @@ def run_multi_sim(alpha_range, is_print = False):
         for alpha, resc_val in alpha_dict.items():
             print()
             print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took time {end-begin} for alpha {alpha}")
-            print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Success steps", "Failure steps", "stuck Steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
+            print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Success steps", "Failure steps", "Stuck steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
             for itr, value in enumerate(resc_val):
                 print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
     else:
