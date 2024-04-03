@@ -38,11 +38,6 @@ MAX_ALPHA_ITERATIONS = 10
 ALPHA_STEP_INCREASE = 0.05
 TOTAL_BOTS = 6
 
-COMPUTE_MOVEMENT_LIMIT = {
-    1 : 350,
-    2 : 700
-}
-
 LOG_NONE = 0
 LOG_DEBUG_ALIEN = 0.5
 LOG_INFO = 1
@@ -935,6 +930,7 @@ class ParentBot(SearchAlgo):
         self.total_crew_to_save = 2
         self.traverse_path = []
         self.unsafe_cells = []
+        self.bot_escape = False
         self.pred_crew_cells = list()
         self.is_caught = False
         self.is_own_design = self.is_bot_moved = self.is_escape_strategy = self.made_move = False
@@ -1025,37 +1021,24 @@ class ParentBot(SearchAlgo):
         curr_cell = self.ship.get_cell(self.curr_pos)
         bot_adj_cells = curr_cell.adj_cells
         safe_cells = list()
-        least_prob_cells = list()
-        least_alien_cells = list()
+        safe_neighbours = list()
 
-        for cell_cord in bot_adj_cells:
+        for itr, cell_cord in enumerate(bot_adj_cells):
             cell = self.ship.get_cell(cell_cord)
-            safe_cell = True
+            safe_cell = False
             if cell.alien_probs.alien_prob == ALIEN_NOT_PRESENT:
-                for neighbour in cell.adj_cells:
-                    alien_prob_sum = 0
-                    if neighbour in self.unsafe_cells:
-                        safe_cell = False
-                        neighbour_cell = self.ship.get_cell(neighbour)
-                        alien_prob_sum += neighbour_cell.alien_probs.alien_prob
+                if cell not in self.unsafe_cells:
+                    safe_cell = True
+                    for neighbour in cell.adj_cells:
+                        if neighbour not in self.unsafe_cells:
+                            safe_neighbours[itr] += 1
 
-                least_prob_cells.append((cell_cord, alien_prob_sum))
-
-                if safe_cell: safe_cells.append(cell_cord)
-
-            least_alien_cells.append((cell_cord, cell.alien_probs.alien_prob))
-
-
+            if safe_cell:
+                safe_cells.append((cell_cord, safe_neighbours))
 
         if len(safe_cells) > 0:
-            next_cell = choice(safe_cells)
-            return [self.curr_pos, next_cell]
-        else:
-            if len(least_prob_cells) > 0:
-                next_move_cells = sorted(least_prob_cells, key=lambda x: x[1])
-            else:
-                next_move_cells = sorted(least_alien_cells, key=lambda x: x[1])
-            return [self.curr_pos, next_move_cells[0][0]]
+            safe_cells = sorted(safe_cells, key=lambda x: x[1], reverse=True)
+            return [self.curr_pos, safe_cells[0][0]]
 
     def print_prob_grid(self, plot = False):
         is_beep_recv = self.alien_evasion_data.is_beep_recv
@@ -1131,14 +1114,24 @@ class ParentBot(SearchAlgo):
                 if is_additive_amoothing:
                     cell.alien_probs.alien_and_beep += ADDITIVE_VALUE
                 cell.alien_probs.alien_prob = cell.alien_probs.alien_and_beep/self.alien_evasion_data.beep_prob
-                prob_cell_list.append((cell.alien_probs.alien_prob, cell_cord))
+                dist_cell = get_manhattan_distance(self.curr_pos, cell_cord)
+                prob_cell_list.append((cell.alien_probs.alien_prob, cell_cord, dist_cell))
 
             # Sorting by probability, used to track movements under limitation etc
-            prob_cell_list = sorted(prob_cell_list, key=lambda x: x[0], reverse=True)
+            cells_by_distance = sorted(prob_cell_list, key=lambda x: x[2], reverse=True)
+            self.alien_evasion_data.present_alien_cells = [cell[1] for cell in cells_by_distance]
+            if self.alien_evasion_data.beep_count > 0:
+                prob_cell_list = sorted(prob_cell_list, key=lambda x: x[0], reverse=True)
+                self.unsafe_cells = [cell[1] for cell in prob_cell_list]
+                if not beep_recv:
+                    self.unsafe_cells = self.unsafe_cells[:TOTAL_UNSAFE_CELLS]
+                
+                unsafe_neighbours = list()
+                for cell_cord in self.unsafe_cells:
+                    cell = self.ship.get_cell(cell_cord)
+                    unsafe_neighbours.append(cell.adj_cells)
+                self.unsafe_cells.extend(unsafe_neighbours)
 
-            self.unsafe_cells = self.alien_evasion_data.present_alien_cells = [prob_cell[1] for prob_cell in prob_cell_list]
-            if not beep_recv:
-                self.unsafe_cells = self.unsafe_cells[:TOTAL_UNSAFE_CELLS]
 
             self.unsafe_cells = [prob_cell[1] for prob_cell in prob_cell_list]
 
@@ -1153,10 +1146,7 @@ class ParentBot(SearchAlgo):
         self.alien_evasion_data.alien_movement_cells = set()
         prob_cell_mapping = dict()
 
-        if not beep_recv:
-            present_alien_cells = self.alien_evasion_data.present_alien_cells[:COMPUTE_MOVEMENT_LIMIT[self.compute_movement_config]]
-        else:
-            present_alien_cells = self.alien_evasion_data.present_alien_cells
+        present_alien_cells = self.alien_evasion_data.present_alien_cells
 
 
         for cell_cord in present_alien_cells:
@@ -1358,19 +1348,21 @@ class ParentBot(SearchAlgo):
         return True
 
     def calculate_best_path(self):
-        if self.alien_evasion_data.is_beep_recv:
+        if self.curr_pos in self.unsafe_cells: # Escape path
+            self.traverse_path = self.find_escape_path()
+            if self.traverse_path:
+                return True
+            return False
+            
+        if self.alien_evasion_data.beep_count > 0:
             if self.traverse_path:
                 if self.is_own_design:
                     self.traverse_path = self.astar_search_path(self.traverse_path[-1])
                 else:
                     self.traverse_path = self.search_path(self.traverse_path[-1], None, self.unsafe_cells)
-                # self.traverse_path = self.search_path(self.traverse_path[-1], None, self.unsafe_cells)
 
             if len(self.traverse_path) == 0:
-                self.traverse_path = self.find_escape_path() # Change this
-                if len(self.traverse_path) == 0:
-                    # Sit and pray
-                    return False
+                return False
 
             self.traverse_path.pop(0)
         else:
@@ -1390,9 +1382,8 @@ class ParentBot(SearchAlgo):
                 if index > 0:
                     self.to_visit_list.reverse()
 
-            prob_crew_cell = self.to_visit_list.pop(0)
+            prob_crew_cell = self.to_visit_list[0]
 
-            # Ends here
             if self.is_own_design:
                 # A star call
                 self.traverse_path = self.astar_search_path(prob_crew_cell)
@@ -1403,20 +1394,14 @@ class ParentBot(SearchAlgo):
                         self.traverse_path.pop(0)
                         return True
 
-                self.traverse_path = self.search_path(prob_crew_cell)
-
-            # if len(self.unsafe_cells):
-            #     self.traverse_path = self.search_path(prob_crew_cell, None, self.unsafe_cells)
-            #     if (self.traverse_path):
-            #         self.traverse_path.pop(0)
-            #         return True
-
-            self.traverse_path = self.search_path(prob_crew_cell)
+                if (not self.alien_evasion_data.is_beep_recv):
+                    self.traverse_path = self.search_path(prob_crew_cell)
 
             if len(self.traverse_path) == 0:
                 self.logger.print(LOG_DEBUG, f"Unable to find a path....")
                 return False
-
+            
+            self.to_visit_list.pop(0)
             self.traverse_path.pop(0)
             self.logger.print(LOG_DEBUG, f"New path to cell {prob_crew_cell} was found, {self.traverse_path}")
 
@@ -1444,7 +1429,7 @@ class ParentBot(SearchAlgo):
             self.update_alien_data()
             self.update_crew_search_data()
 
-            if idle_steps >= self.idle_threshold or self.alien_evasion_data.is_beep_recv:
+            if idle_steps >= self.idle_threshold or self.alien_evasion_data.beep_count > 0:
                 idle_steps = 0
                 keep_moving = self.calculate_best_path()
 
@@ -2042,6 +2027,6 @@ def compare_multiple_alpha():
 
 # MAJOR ISSUES WITH ALL BOTS!!
 if __name__ == '__main__':
-    # run_test()
-    run_multi_sim([ALPHA], True)
+    run_test()
+    # run_multi_sim([ALPHA], True)
     # compare_multiple_alpha()
