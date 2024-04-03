@@ -37,7 +37,7 @@ TOTAL_ITERATIONS = 5
 TOTAL_ITERATIONS = 10
 MAX_ALPHA_ITERATIONS = 10
 ALPHA_STEP_INCREASE = 0.05
-TOTAL_BOTS = 6
+TOTAL_BOTS = 7
 
 LOG_NONE = 0
 LOG_DEBUG_ALIEN = 0.5
@@ -1859,6 +1859,14 @@ class Bot_7(Bot_4):
             end = time()
             print(f'Time taken UAD :: {start - end}')
 
+class Bot_8(Bot_7):
+    alien_config = TWO_ALIENS
+
+    def __init__(self, ship, log_level = LOG_NONE):
+        super(Bot_5, self).__init__(ship, log_level)
+        self.is_own_design = True
+        self.idle_threshold = 0
+
 
 
 """Simulation & Testing logic begins"""
@@ -1870,7 +1878,8 @@ BOT_NAMES = {
     3 : "bot_4",
     4 : "bot_5",
     5 : "bot_6",
-    6 : "bot_7"
+    6 : "bot_7",
+    7 : "bot_8"
 }
 
 # Responsible for updating the alpha for each worker pool
@@ -1893,8 +1902,10 @@ def bot_factory(itr, ship, log_level = LOG_NONE):
         return Bot_5(ship, log_level)
     elif (itr == 5):
         return Bot_6(ship, log_level)
-    if (itr == 0):
+    elif (itr == 6):
         return Bot_7(ship, log_level)
+    elif (itr == 7):
+        return Bot_8(ship, log_level)
     return ParentBot(ship, log_level)
 
 # Test function
@@ -1903,7 +1914,7 @@ def run_test(log_level = LOG_INFO):
     for itr in range(1):
         ship = Ship(GRID_SIZE, log_level)
         ship.place_players()
-        for i in range(1):
+        for i in range(TOTAL_BOTS):
             print(BOT_NAMES[i], i)
             begin = time()
             bot = bot_factory(i, ship, log_level)
@@ -2049,6 +2060,6 @@ def compare_multiple_alpha():
 
 # MAJOR ISSUES WITH ALL BOTS!!
 if __name__ == '__main__':
-    run_test()
-    # run_multi_sim([ALPHA], True)
+    # run_test()
+    run_multi_sim([ALPHA], True)
     # compare_multiple_alpha()
