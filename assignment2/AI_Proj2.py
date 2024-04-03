@@ -654,6 +654,15 @@ class Ship:
 
     # The following methods are called from the bot
     def place_aliens(self, no_of_aliens):
+        if len(self.initial_alien_pos):
+            self.aliens = self.initial_alien_pos
+
+            for alien_cell in self.aliens:
+                if self.get_cell(alien_cell).cell_type & CREW_CELL:
+                    self.get_cell(alien_cell).cell_type |= ALIEN_CELL
+                else:
+                    self.get_cell(alien_cell).cell_type = ALIEN_CELL
+
         pending_aliens = no_of_aliens
         cells_within_zone = self.cells_within_bot_zone
         all_cells = list(self.open_cells)
