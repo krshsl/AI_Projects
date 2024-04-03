@@ -1285,8 +1285,8 @@ class ParentBot(SearchAlgo):
         zone_as_list = []
         self.track_zones.clear()
         for key in sorted(self.zone_vs_zone_prob, reverse=True):
-            # if key in self.crew_search_data.all_crew_zones:
-            zone_as_list.append((key, self.zone_vs_zone_prob[key]))
+            if key in self.crew_search_data.all_crew_zones:
+                zone_as_list.append((key, self.zone_vs_zone_prob[key]))
 
         # zone_as_list = sorted(zone_as_list, key=lambda data:-data[1])
 
@@ -2042,6 +2042,6 @@ def compare_multiple_alpha():
 
 # MAJOR ISSUES WITH ALL BOTS!!
 if __name__ == '__main__':
-    run_test()
-    # run_multi_sim([ALPHA], True)
+    # run_test()
+    run_multi_sim([ALPHA], True)
     # compare_multiple_alpha()
