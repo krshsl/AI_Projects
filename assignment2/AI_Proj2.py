@@ -969,14 +969,12 @@ class ParentBot(SearchAlgo):
 
         if len(safe_cells) > 0:
             next_cell = choice(safe_cells)
-            print(f'In escape path:: curr_pos {self.curr_pos}, safe_cell: {next_cell}')
             return [self.curr_pos, next_cell]
         else:
             if len(least_prob_cells) > 0:
                 next_move_cells = sorted(least_prob_cells, key=lambda x: x[1])
             else:
                 next_move_cells = sorted(least_alien_cells, key=lambda x: x[1])
-            print(f'In escape path:: curr_pos {self.curr_pos}, least_alien_cell: {next_move_cells[0][0]}')
             return [self.curr_pos, next_move_cells[0][0]]
 
     def print_prob_grid(self, plot = False):
@@ -1199,10 +1197,7 @@ class ParentBot(SearchAlgo):
         return
 
     def calculate_best_path(self):
-        if len(self.traverse_path):
-            self.traverse_path = self.search_path(self.traverse_path[-1], None, self.unsafe_cells)
-
-        if self.alien_evasion_data.is_beep_recv and len(self.traverse_path) == 0:
+        if self.alien_evasion_data.is_beep_recv:
             self.traverse_path = self.find_escape_path() # Change this
             if len(self.traverse_path) == 0:
                 # Sit and pray
@@ -1211,7 +1206,15 @@ class ParentBot(SearchAlgo):
             if len(self.traverse_path):
                 return False
 
+            # prob_crew_cell = self.shortest_route(self.next_best_crew_cells)
             prob_crew_cell = choice(self.next_best_crew_cells)
+            # Run twice, once with this on, and off
+            if len(self.unsafe_cells):
+                self.traverse_path = self.search_path(prob_crew_cell, None, self.unsafe_cells)
+                if (self.traverse_path):
+                    self.traverse_path.pop(0)
+                    return True
+            # Ends here
             self.traverse_path = self.search_path(prob_crew_cell)
             self.traverse_path.pop(0)
             self.logger.print(LOG_DEBUG, f"New path to cell {prob_crew_cell} was found, {self.traverse_path}")
@@ -1226,7 +1229,6 @@ class ParentBot(SearchAlgo):
         self.logger.print_all_crew_data(LOG_DEBUG, self)
 
         while (True): # Keep trying till you find the crew
-            print(total_iter)
             if total_iter >= 1000:
                 return init_distance, total_iter, total_moves, BOT_STUCK
 
@@ -1754,6 +1756,6 @@ def compare_multiple_alpha():
 
 # MAJOR ISSUES WITH ALL BOTS!!
 if __name__ == '__main__':
-    run_test()
-    # run_multi_sim([ALPHA], True)
+    # run_test()
+    run_multi_sim([ALPHA], True)
     # compare_multiple_alpha()
