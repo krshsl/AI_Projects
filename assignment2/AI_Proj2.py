@@ -1416,7 +1416,10 @@ class ParentBot(SearchAlgo):
 
         while (True): # Keep trying till you find the crew
             if total_iter >= 1000:
-                return init_distance, total_iter, total_moves, BOT_STUCK, (self.total_crew_to_save - len(self.all_crews))
+                saved = self.total_crew_to_save - len(self.all_crews)
+                if saved == -1:
+                    saved = 0
+                return init_distance, total_iter, total_moves, BOT_STUCK, saved
 
             total_iter += 1
             idle_steps += 1
@@ -1436,10 +1439,16 @@ class ParentBot(SearchAlgo):
             if keep_moving:
                 if self.move_bot():
                     if self.is_rescued():
-                        return init_distance, total_iter, total_moves, BOT_SUCCESS, (self.total_crew_to_save - len(self.all_crews))
+                        saved = self.total_crew_to_save - len(self.all_crews)
+                        if saved == -1:
+                            saved = 0
+                        return init_distance, total_iter, total_moves, BOT_SUCCESS, saved
 
                     elif self.is_caught:
-                        return init_distance, total_iter, total_moves, BOT_FAILED, (self.total_crew_to_save - len(self.all_crews))
+                        saved = self.total_crew_to_save - len(self.all_crews)
+                        if saved == -1:
+                            saved = 0
+                        return init_distance, total_iter, total_moves, BOT_FAILED, saved
 
                     self.is_bot_moved = True
                     total_moves += 1
@@ -1452,7 +1461,10 @@ class ParentBot(SearchAlgo):
                     self.made_move = False
 
             if self.ship.move_aliens(self):
-                return init_distance, total_iter, total_moves, BOT_FAILED, (self.total_crew_to_save - len(self.all_crews))
+                saved = self.total_crew_to_save - len(self.all_crews)
+                if saved == -1:
+                    saved = 0
+                return init_distance, total_iter, total_moves, BOT_FAILED, saved
 
     def max_alien_beep(self):
         k = ALIEN_ZONE_SIZE
@@ -1985,6 +1997,7 @@ def run_multi_sim(alpha_range, is_print = False):
                     alpha_dict[alpha][i].failure_steps += value[i].failure_steps
                     alpha_dict[alpha][i].stuck += value[i].stuck
                     alpha_dict[alpha][i].stuck_steps += value[i].stuck_steps
+                    alpha_dict[alpha][i].crews_saved += value[i].crews_saved
                     alpha_dict[alpha][i].time_taken += value[i].time_taken
 
     for alpha, resc_val in alpha_dict.items():
