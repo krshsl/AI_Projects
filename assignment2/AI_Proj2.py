@@ -5,6 +5,7 @@ from matplotlib import pyplot
 from time import time
 from multiprocessing import Process, Queue, cpu_count
 from itertools import permutations
+from heapq import heappop, heappush
 
 #Constants
 CLOSED_CELL = 1
@@ -725,6 +726,20 @@ class Ship:
 
 """ Basic search algorithm, and the parent class for our bot """
 
+class CellSearchNode:
+    def __init__(self, cord, parent=None):
+        self.cord = cord
+        self.parent = parent
+        self.actual_est = 0
+        self.heuristic_est = 0
+        self.total_cost = 0
+
+    def __eq__(self, other):
+        return self.cord == other.cord
+
+    def __lt__(self, other):
+        return self.total_cost < other.total_cost
+
 class SearchAlgo:
     alien_config = ONE_ALIEN
 
@@ -786,6 +801,48 @@ class SearchAlgo:
                     bfs_queue.append((neighbor, path_traversed + [neighbor]))
 
         return [] #God forbid, this should never happen
+    
+    # A-star search implementation
+    def astar_heuristic(self, node, goal):
+        return abs(node.cord[0] - goal[0]) + abs(node.cord[1] - goal[1])
+
+    def astar_search_path(self, dest_cell, curr_pos = None):
+        if curr_pos is None:
+            curr_pos = self.curr_pos
+
+        open_list = list()
+        visited_set = set()
+        start_node = CellSearchNode(curr_pos)
+        goal_node = CellSearchNode(dest_cell)
+        heappush(open_list, start_node)
+
+        while open_list:
+            current_node = heappop(open_list)
+
+            if current_node == goal_node:
+                path = []
+                while current_node:
+                    path.append(current_node.cord)
+                    current_node = current_node.parent
+                return path[::-1]
+
+            visited_set.add(current_node.cord)
+
+            for neighbour in get_neighbors(self.ship.size, current_node.cord, self.ship.grid, BOT_MOVEMENT_CELLS):
+                if neighbour in visited_set:
+                    continue
+                
+                new_node = CellSearchNode(neighbour, current_node)
+
+                alien_prob = self.ship.get_cell(new_node.cord).alien_probs.alien_prob
+                new_node.actual_est = current_node.actual_est + 1
+                new_node.heuristic_est = self.astar_heuristic(new_node, dest_cell)
+                new_node.total_cost = new_node.actual_est + new_node.heuristic_est + (1 / (1 + alien_prob))
+
+                heappush(open_list, new_node)
+
+        # No path found
+        return []
 
     def place_aliens_handler(self):
         self.ship.place_aliens(self.alien_config)
@@ -1196,6 +1253,8 @@ class ParentBot(SearchAlgo):
 
             # Ends here
             self.traverse_path = self.search_path(prob_crew_cell)
+            # A star call
+            # self.traverse_path = self.astar_search_path(prob_crew_cell)
             self.traverse_path.pop(0)
             self.logger.print(LOG_DEBUG, f"New path to cell {prob_crew_cell} was found, {self.traverse_path}")
 
