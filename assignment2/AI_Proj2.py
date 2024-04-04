@@ -1018,7 +1018,7 @@ class ParentBot(SearchAlgo):
 
     def find_escape_path(self):
         escape_path = self.find_nearest_safe_cell()
-        if len(escape_path) == 0:
+        if not escape_path:
             return []
 
         escape_path.pop(0)
@@ -1893,7 +1893,7 @@ def bot_factory(itr, ship, log_level = LOG_NONE):
 
 # Test function
 def run_test(log_level = LOG_INFO):
-    update_lookup(ALPHA, "alpha")
+    update_lookup(ALPHA, False)
     for itr in range(10):
         ship = Ship(GRID_SIZE, log_level)
         ship.place_players()
@@ -2071,8 +2071,8 @@ def compare_multiple_k():
 
 # MAJOR ISSUES WITH ALL BOTS!!
 if __name__ == '__main__':
-    # run_test()
+    run_test()
     # run_multi_sim({"alpha" : [ALPHA]}, True)
     # run_multi_sim({"k" : [ALIEN_ZONE_SIZE]}, True)
-    compare_multiple_alpha()
-    compare_multiple_k()
+    # compare_multiple_alpha()
+    # compare_multiple_k()
