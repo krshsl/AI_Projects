@@ -1333,7 +1333,11 @@ class ParentBot(SearchAlgo):
 
     def calculate_best_path(self):
         if (self.curr_pos in self.unsafe_cells) and self.traverse_path: # Escape path
-            self.traverse_path = self.search_path(self.traverse_path[-1], None, self.unsafe_cells)
+            if self.is_own_design:
+                self.traverse_path = self.astar_search_path(prob_crew_cell)
+            else:
+                self.traverse_path = self.search_path(self.traverse_path[-1], None, self.unsafe_cells)
+
             if self.traverse_path:
                 self.traverse_path.pop(0)
                 return True
@@ -2012,14 +2016,18 @@ def run_multi_sim(data_range, is_print = False):
             value.time_taken /= actual_iters
     end = time()
 
+    data_name = None
+    for key in data_range:
+        data_name = key
+
     if (is_print):
         for key, resc_val in result_dict.items():
-            print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took time {end-begin} for {data_range.items[0]} {key}")
+            print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took time {end-begin} for {data_name} {key}")
             print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Crews Saved", "Success steps", "Failure steps", "Stuck steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
             for itr, value in enumerate(resc_val):
                 print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.crews_saved, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
     else:
-        print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took total time {end-begin} for alpha range {result_dict.keys()}")
+        print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took total time {end-begin} for {data_name} range {result_dict.keys()}")
 
     del processes
     return result_dict
