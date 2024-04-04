@@ -25,7 +25,7 @@ BOT_STUCK = 3
 X_COORDINATE_SHIFT = [1, 0, 0, -1]
 Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 
-ALIEN_ZONE_SIZE = 3 # k - k >= 1, need to determine the large value
+ALIEN_ZONE_SIZE = 5 # k - k >= 1, need to determine the large value
 SEARCH_ZONE_SIZE = 5
 ALPHA = 0.25 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 4
@@ -37,6 +37,10 @@ MAX_K_ITERATIONS = 7
 ALPHA_STEP_INCREASE = 0.05
 ALIEN_ZONE_INCREASE = 1
 TOTAL_BOTS = 8
+
+DISTANCE_UTILITY=0.075 #DON'T WANT DISTANCE TO BE A MAJOR CONTRIBUTOR....
+ALIEN_UTILITY=-1.5 #ALIENS ARE ALWAYS DANGEROUS!?!
+CREW_UTILITY=1.15 #LET THIS PLAY SOME ROLE???
 
 LOG_NONE = 0
 LOG_DEBUG_ALIEN = 0.5
@@ -1091,7 +1095,7 @@ class ParentBot(SearchAlgo):
                 if cell.zone_number not in self.zone_vs_zone_prob:
                     self.zone_vs_zone_prob[cell.zone_number] = 0
 
-                self.zone_vs_zone_prob[cell.zone_number] -= 1.25*cell.alien_probs.alien_prob
+                self.zone_vs_zone_prob[cell.zone_number] += ALIEN_UTILITY*cell.alien_probs.alien_prob
                 dist_cell = get_manhattan_distance(self.curr_pos, cell_cord)
                 prob_cell_list.append((cell.alien_probs.alien_prob, cell_cord, dist_cell))
 
@@ -1265,24 +1269,10 @@ class ParentBot(SearchAlgo):
             return sorted(self.crew_search_data.crew_cells, key= lambda cell:(-self.ship.get_cell(cell).crew_probs.crew_prob, self.ship.get_cell(cell).crew_probs.bot_distance))[:3]
 
         # point to check, is it worth visiting a zone, if the zone value changes???
-        if self.total_crew_to_save == 2: # for 2 crews, 2 zones can have a very high prob
-            max_size = 8
-            zone_2 = []
-            if len(zone_as_list) > 1:
-                max_size = 4
-                zone_2 = sorted(self.crew_search_data.all_crew_zones[zone_as_list[1][0]], key=lambda cell:(-self.ship.get_cell(cell).crew_probs.crew_prob, self.ship.get_cell(cell).crew_probs.bot_distance))[:max_size]
-                self.track_zones[zone_as_list[0][1]] = (zone_2, self.zone_vs_zone_prob[zone_as_list[1][0]])
-
-            zone_1 = sorted(self.crew_search_data.all_crew_zones[zone_as_list[0][0]], key=lambda cell:(-self.ship.get_cell(cell).crew_probs.crew_prob, self.ship.get_cell(cell).crew_probs.bot_distance))[:max_size]
-            # print(zone_as_list, self.track_zones)
-            self.track_zones[zone_as_list[0][0]] = (zone_1, self.zone_vs_zone_prob[zone_as_list[0][0]])
-            if len(zone_2) > 0:
-                zone_1.extend(zone_2)
-            return zone_1
-        else:
-            zone_1 = sorted(self.crew_search_data.all_crew_zones[zone_as_list[0][0]], key=lambda cell:(-self.ship.get_cell(cell).crew_probs.crew_prob, self.ship.get_cell(cell).crew_probs.bot_distance))[:6]
-            self.track_zones[zone_as_list[0][0]] = (zone_1, self.zone_vs_zone_prob[zone_as_list[0][0]])
-            return zone_1
+        max_size = 8 if self.total_crew_to_save == 2 else 6
+        zone_1 = sorted(self.crew_search_data.all_crew_zones[zone_as_list[0][0]], key=lambda cell:(-self.ship.get_cell(cell).crew_probs.crew_prob, self.ship.get_cell(cell).crew_probs.bot_distance))[:max_size]
+        self.track_zones[zone_as_list[0][0]] = (zone_1, self.zone_vs_zone_prob[zone_as_list[0][0]])
+        return zone_1
 
     def get_most_prob_cell(self):
         # zone_number = self.ship.get_cell(self.curr_pos).zone_number
@@ -1332,9 +1322,9 @@ class ParentBot(SearchAlgo):
         return True
 
     def calculate_best_path(self):
-        if (self.curr_pos in self.unsafe_cells) and self.traverse_path: # Escape path
+        if self.traverse_path and (self.traverse_path in self.unsafe_cells): # Escape path
             if self.is_own_design:
-                self.traverse_path = self.astar_search_path(prob_crew_cell)
+                self.traverse_path = self.astar_search_path(self.traverse_path[-1])
             else:
                 self.traverse_path = self.search_path(self.traverse_path[-1], None, self.unsafe_cells)
 
@@ -1342,14 +1332,21 @@ class ParentBot(SearchAlgo):
                 self.traverse_path.pop(0)
                 return True
             else:
-                self.old_path = self.traverse_path
+                if not self.old_path:
+                    self.old_path = list(self.traverse_path)
+
                 self.traverse_path = self.find_escape_path()
                 if self.traverse_path:
                     return True
-            return False
+                return False
 
         if self.traverse_path:
             return True
+        elif self.old_path:
+            self.traverse_path = self.old_path
+            self.old_path.clear()
+            if self.traverse_path:
+                return True
 
         self.is_continue_traversing()
 
@@ -1529,7 +1526,7 @@ class Bot_1(ParentBot):
                 self.zone_vs_zone_prob[cell.zone_number] = 0
 
             if cell.zone_number in self.crew_search_data.all_crew_zones:
-                self.zone_vs_zone_prob[cell.zone_number] += crew_probs.crew_prob
+                self.zone_vs_zone_prob[cell.zone_number] += CREW_UTILITY*crew_probs.crew_prob
 
         crew_search_data.set_all_probs(temp_search_data.beep_prob, temp_search_data.no_beep_prob, temp_search_data.normalize_probs)
         self.logger.print_all_crew_data(LOG_DEBUG, self)
@@ -1630,9 +1627,11 @@ class Bot_4(ParentBot):
         crew_search_data = self.crew_search_data
         temp_search_data = self.temp_search_data
         temp_search_data.set_all_probs()
-        max_prob = 0
-
         is_visited = {}
+
+        # crew_cells_len can be one after saving a crew, if not,
+        # the number of time a prob is calc for a cell will be n times, n being the size of the grid
+        crew_cells_len = 1 if self.pending_crew else len(self.crew_search_data.crew_cells)
         for key in crew_search_data.crew_cells_pair: # update probs for this round
             for cell_pairs in crew_search_data.crew_cells_pair[key]:
                 crew_probs = cell_pairs.crew_probs
@@ -1654,8 +1653,8 @@ class Bot_4(ParentBot):
 
                     cell_1.crew_probs.crew_prob += crew_probs.crew_prob
 
-                    if cell_1.zone_number in self.crew_search_data.all_crew_zones:
-                        self.zone_vs_zone_prob[cell_1.zone_number] += crew_probs.crew_prob
+                    if cell_1.zone_number in self.crew_search_data.all_crew_zones: #double checking to be safe...
+                        self.zone_vs_zone_prob[cell_1.zone_number] += CREW_UTILITY*crew_probs.crew_prob/crew_cells_len
 
                 if cell_2.cord != self.saved_crew:
                     if cell_2.zone_number not in self.zone_vs_zone_prob:
@@ -1664,7 +1663,7 @@ class Bot_4(ParentBot):
                     cell_2.crew_probs.crew_prob += crew_probs.crew_prob
 
                     if cell_2.zone_number in self.crew_search_data.all_crew_zones:
-                        self.zone_vs_zone_prob[cell_2.zone_number] += crew_probs.crew_prob
+                        self.zone_vs_zone_prob[cell_2.zone_number] += CREW_UTILITY*crew_probs.crew_prob/crew_cells_len
 
         crew_search_data.set_all_probs(temp_search_data.beep_prob, temp_search_data.no_beep_prob, temp_search_data.normalize_probs)
         self.logger.print_all_crew_data(LOG_DEBUG, self)
@@ -1809,10 +1808,17 @@ class Bot_7(Bot_4):
                     cell.alien_probs.alien_prob += prob
                     visited_cells.add(cell)
 
+            total_len = len(visited_cells)
             for cell_cord in visited_cells:
                 dist_cell = get_manhattan_distance(self.curr_pos, cell_cord)
                 cell = self.ship.get_cell(cell_cord)
+                cell.alien_probs.alien_prob /= total_len
                 prob_cell_list.append((cell.alien_probs.alien_prob, cell_cord, dist_cell))
+
+                if cell.zone_number not in self.zone_vs_zone_prob:
+                    self.zone_vs_zone_prob[cell.zone_number] = 0
+
+                self.zone_vs_zone_prob[cell.zone_number] += ALIEN_UTILITY*cell.alien_probs.alien_prob/total_len
 
             # Sorting by probability, used to track movements under limitation etc
             # cells_by_distance = sorted(prob_cell_list, key=lambda x: x[2], reverse=True)
@@ -1930,11 +1936,13 @@ def run_sim(args):
     else:
         itr_data = data_range["k"]
 
+    # varying_data = "k" if is_k else "alpha"
     for data in itr_data:
         update_lookup(data, is_k)
+        # print(f"Verifying update (alpha vs k) for variable {varying_data}::{ALPHA}::{ALIEN_ZONE_SIZE}")
         temp_data_set = [FINAL_OUT() for j in range(TOTAL_BOTS)]
         for itr in range(iterations_range):
-            print(itr+1, end = '\r')
+            # print(itr+1, end = '\r') # MANNNYYY LINES PRINTED ON ILAB ;-;
             ship = Ship(GRID_SIZE)
             ship.place_players()
             for bot_no in range(TOTAL_BOTS):
@@ -1968,8 +1976,7 @@ def run_multi_sim(data_range, is_print = False):
     result_dict = dict()
     data_set = [FINAL_OUT() for j in range(TOTAL_BOTS)]
     processes = []
-    if (is_print):
-        print(f"Iterations begin...")
+    print(f"Iterations begin...")
     core_count = cpu_count()
     total_iters = round(TOTAL_ITERATIONS/core_count)
     actual_iters = total_iters * core_count
@@ -1977,7 +1984,7 @@ def run_multi_sim(data_range, is_print = False):
     for itr in range(core_count):
         total_data.append((total_iters, data_range))
 
-    with Pool(processes=20) as p:
+    with Pool(processes=core_count) as p:
         result = p.map(run_sim, total_data)
         for temp_alpha_dict in result:
             for key, value in temp_alpha_dict.items():
@@ -2016,18 +2023,24 @@ def run_multi_sim(data_range, is_print = False):
             value.time_taken /= actual_iters
     end = time()
 
-    data_name = None
-    for key in data_range:
-        data_name = key
+    is_const_alpha = True
+    if "alpha" in data_range:
+        is_const_alpha = False
 
     if (is_print):
         for key, resc_val in result_dict.items():
-            print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took time {end-begin} for {data_name} {key}")
+            if is_const_alpha:
+                print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took time {end-begin} for k {key}, and alpha {ALPHA}")
+            else:
+                print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took time {end-begin} for alpha {key}, and k {ALIEN_ZONE_SIZE}")
             print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Crews Saved", "Success steps", "Failure steps", "Stuck steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
             for itr, value in enumerate(resc_val):
                 print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.crews_saved, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
     else:
-        print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took total time {end-begin} for {data_name} range {result_dict.keys()}")
+        if is_const_alpha:
+            print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took time {end-begin} for k {result_dict.keys()}, and alpha {ALPHA}")
+        else:
+            print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took time {end-begin} for alpha {result_dict.keys()}, and k {ALIEN_ZONE_SIZE}")
 
     del processes
     return result_dict
