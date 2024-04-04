@@ -1042,7 +1042,7 @@ class ParentBot(SearchAlgo):
                             safe_neighbours[itr] += 1
 
             if safe_cell:
-                safe_cells.append((cell_cord, safe_neighbours))
+                safe_cells.append((cell_cord, safe_neighbours[itr]))
 
         if len(safe_cells) > 0:
             safe_cells = sorted(safe_cells, key=lambda x: x[1], reverse=True)
