@@ -1029,7 +1029,7 @@ class ParentBot(SearchAlgo):
         curr_cell = self.ship.get_cell(self.curr_pos)
         bot_adj_cells = curr_cell.adj_cells
         safe_cells = list()
-        safe_neighbours = list()
+        safe_neighbours = dict()
 
         for itr, cell_cord in enumerate(bot_adj_cells):
             cell = self.ship.get_cell(cell_cord)
