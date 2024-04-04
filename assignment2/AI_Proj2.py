@@ -1034,6 +1034,7 @@ class ParentBot(SearchAlgo):
         for itr, cell_cord in enumerate(bot_adj_cells):
             cell = self.ship.get_cell(cell_cord)
             safe_cell = False
+            safe_neighbours[itr] = 0
             if cell.alien_probs.alien_prob == ALIEN_NOT_PRESENT:
                 if cell not in self.unsafe_cells:
                     safe_cell = True
