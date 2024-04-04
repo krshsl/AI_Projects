@@ -1,7 +1,6 @@
 from random import randint, uniform, choice
-from math import e as exp, ceil, sqrt
+from math import e as exp, ceil, sqrt, floor
 from inspect import currentframe
-# from matplotlib import pyplot
 from time import time
 from multiprocessing import Process, Queue, cpu_count
 from itertools import permutations
@@ -26,15 +25,16 @@ BOT_STUCK = 3
 X_COORDINATE_SHIFT = [1, 0, 0, -1]
 Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 
-ALIEN_ZONE_SIZE = 2 # k - k >= 1, need to determine the large value
+ALIEN_ZONE_SIZE = 1 # k - k >= 1, need to determine the large value
 SEARCH_ZONE_SIZE = 5
-ALPHA = 0.5 # avoid large alpha at the cost of performance
+ALPHA = 0.05 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 4
 TOTAL_UNSAFE_CELLS = 5
 
 TOTAL_ITERATIONS = 10
 MAX_ALPHA_ITERATIONS = 10
 ALPHA_STEP_INCREASE = 0.05
+ALIEN_ZONE_INCREASE = 1
 TOTAL_BOTS = 8
 
 LOG_NONE = 0
@@ -144,34 +144,6 @@ class Logger:
             return
 
         self.print_crew_data(bot.curr_pos, bot.ship, bot.crew_search_data, bot.total_beep, bot.is_beep_recv)
-
-    # def print_crew_probs(self, grid, is_beep_recv, curr_pos):
-    #     if IGNORE_GRID_DEBUG and not self.check_log_level(LOG_DEBUG_GRID):
-    #         return
-
-    #     prob_grid = []
-    #     prob_spread = list()
-    #     for cells in grid:
-    #         prob_cell = []
-    #         for cell in cells:
-    #             if cell.cell_type == CLOSED_CELL:
-    #                 prob_cell.append(float('nan'))
-    #             elif cell.cell_type == (BOT_CELL|CREW_CELL):
-    #                 prob_cell.append(1)
-    #             else:
-    #                 prob_cell.append(cell.crew_probs.crew_prob)
-    #                 if not cell.crew_probs.crew_prob in prob_spread:
-    #                     prob_spread.append(cell.crew_probs.crew_prob)
-    #         prob_grid.append(prob_cell)
-
-    #     prob_spread.sort()
-    #     max_len = len(prob_spread) - 1
-    #     prob_grid[curr_pos[0]][curr_pos[1]] = prob_spread[max_len]
-
-    #     pyplot.figure(figsize=(10,10))
-    #     pyplot.colorbar(pyplot.imshow(prob_grid, vmin=prob_spread[0], vmax=prob_spread[max_len]))
-    #     pyplot.title("Beep recv" if is_beep_recv else "Beep not recv")
-    #     pyplot.show()
 
 # Modularizing our knowledge base for readability
 class One_Alien_Evasion_Data:
@@ -518,7 +490,7 @@ class Two_Crew_Search_DS(One_Crew_Search_DS):
 """ Core Ship Layout (same as last project) """
 
 class Ship:
-    def __init__(self, size, log_level = LOG_INFO):
+    def __init__(self, size, log_level = LOG_NONE):
         self.size = size
         self.grid = [[Cell(i, j, CLOSED_CELL) for j in range(size)] for i in range(size)] # grid is a list of list with each cell as a class
         self.open_cells = []
@@ -925,7 +897,6 @@ class SearchAlgo:
 
     def place_aliens_handler(self):
         self.ship.check_aliens_count(self.alien_config)
-        print(self.__class__.__name__ , self.alien_config, self.ship.aliens)
 
 
 """ Main parent class for all our bots, contain most of the common bot logic """
@@ -953,6 +924,7 @@ class ParentBot(SearchAlgo):
         self.path_traversed.append(self.curr_pos)
         self.all_crews = [self.ship.crew_1, self.ship.crew_2]
         self.saved_crew = ()
+        self.old_path = []
 
     def rescue_info(self):
         init_1_distance = self.ship.get_cell(self.curr_pos).listen_beep.crew_1_dist
@@ -1052,36 +1024,6 @@ class ParentBot(SearchAlgo):
             safe_cells = sorted(safe_cells, key=lambda x: x[1], reverse=True)
             return [self.curr_pos, safe_cells[0][0]]
 
-    # def print_prob_grid(self, plot = False):
-    #     is_beep_recv = self.alien_evasion_data.is_beep_recv
-    #     # curr_pos = self.curr_pos
-    #     prob_grid = []
-    #     prob_spread = list()
-    #     grid = self.ship.grid
-    #     for i, cells in enumerate(grid):
-    #         prob_cell = []
-    #         for j, cell in enumerate(cells):
-    #             if cell.cell_type == CLOSED_CELL:
-    #                 prob_cell.append(float('nan'))
-    #                 print(f'[{i}][{j}]: C', end=' ')
-    #             else:
-    #                 print(f'[{i}][{j}]: {cell.alien_probs.alien_prob}', end=' ')
-    #                 prob_cell.append(cell.alien_probs.alien_prob)
-    #                 if not cell.alien_probs.alien_prob in prob_spread:
-    #                     prob_spread.append(cell.alien_probs.alien_prob)
-
-    #         prob_grid.append(prob_cell)
-    #         print()
-
-    #     prob_spread.sort()
-    #     max_len = len(prob_spread) - 1
-    #     # prob_grid[curr_pos[0]][curr_pos[1]] = 0
-    #     if plot:
-    #         pyplot.figure(figsize=(35,35))
-    #         pyplot.colorbar(pyplot.imshow(prob_grid, vmin=prob_spread[0], vmax=prob_spread[max_len]))
-    #         pyplot.title("Beep recv" if is_beep_recv else "Beep not recv")
-    #         pyplot.show()
-
     '''
         If beep heard, cells within detection zone: P(B obs /A) = 1
         cells outside P(B obs /A) = 0
@@ -1126,6 +1068,10 @@ class ParentBot(SearchAlgo):
                 if is_additive_amoothing:
                     cell.alien_probs.alien_and_beep += ADDITIVE_VALUE
                 cell.alien_probs.alien_prob = cell.alien_probs.alien_and_beep/self.alien_evasion_data.beep_prob
+                if cell.zone_number not in self.zone_vs_zone_prob:
+                    self.zone_vs_zone_prob[cell.zone_number] = 0
+
+                self.zone_vs_zone_prob[cell.zone_number] -= 1.25*cell.alien_probs.alien_prob
                 dist_cell = get_manhattan_distance(self.curr_pos, cell_cord)
                 prob_cell_list.append((cell.alien_probs.alien_prob, cell_cord, dist_cell))
 
@@ -1198,7 +1144,7 @@ class ParentBot(SearchAlgo):
         Remember, we are not taking into account where the alien will be here!!
     """
     def move_bot(self):
-        if not len(self.traverse_path):
+        if not self.traverse_path:
             return False
 
         self.ship.get_cell(self.curr_pos).cell_type = OPEN_CELL
@@ -1283,11 +1229,18 @@ class ParentBot(SearchAlgo):
     def get_best_zone(self):
         zone_as_list = []
         self.track_zones.clear()
-        for key in sorted(self.zone_vs_zone_prob, reverse=True):
+        curr_zone = self.ship.get_cell(self.curr_pos).zone_number
+        curr_zone_pos = (curr_zone%SEARCH_ZONE_SIZE, floor(curr_zone/SEARCH_ZONE_SIZE))
+        for key in self.zone_vs_zone_prob:
+            distance = abs(curr_zone_pos[0] - key%SEARCH_ZONE_SIZE) + abs(curr_zone_pos[1] - floor(key/SEARCH_ZONE_SIZE))
+            if distance == 0:
+                distance = 0.75
+            self.zone_vs_zone_prob[key] += 0.075/distance #don't want distance to play a major role...
+
             if key in self.crew_search_data.all_crew_zones:
                 zone_as_list.append((key, self.zone_vs_zone_prob[key]))
 
-        # zone_as_list = sorted(zone_as_list, key=lambda data:-data[1])
+        zone_as_list = sorted(zone_as_list, key=lambda data:-data[1])
 
         # point to check, is it worth visiting a zone, if the zone value changes???
         if self.total_crew_to_save == 2: # for 2 crews, 2 zones can have a very high prob
@@ -1357,63 +1310,53 @@ class ParentBot(SearchAlgo):
         return True
 
     def calculate_best_path(self):
-        if self.curr_pos in self.unsafe_cells: # Escape path
-            self.traverse_path = self.find_escape_path()
+        if (self.curr_pos in self.unsafe_cells) and self.traverse_path: # Escape path
+            self.traverse_path = self.search_path(self.traverse_path[-1], None, self.unsafe_cells)
             if self.traverse_path:
+                self.traverse_path.pop(0)
                 return True
+            else:
+                self.old_path = self.traverse_path
+                self.traverse_path = self.find_escape_path()
+                if self.traverse_path:
+                    return True
             return False
 
-        if self.alien_evasion_data.beep_count > 0:
-            if self.traverse_path:
-                if self.is_own_design:
-                    self.traverse_path = self.astar_search_path(self.traverse_path[-1])
-                else:
-                    self.traverse_path = self.search_path(self.traverse_path[-1], None, self.unsafe_cells)
+        if self.traverse_path:
+            return True
 
-            if len(self.traverse_path) == 0:
-                return False
+        self.is_continue_traversing()
 
-            self.traverse_path.pop(0)
-        else:
-            if self.traverse_path:
-                    return True
-
-            self.is_continue_traversing()
-
-            next_point_index = 0
-            if len(self.to_visit_list) == 0:
-                if self.is_own_design:
-                    next_point_index, self.to_visit_list = self.shortest_route(self.get_best_zone())
-                else:
-                    next_point_index, self.to_visit_list = self.shortest_route(self.get_most_prob_cell())
-                index = self.to_visit_list.index(self.curr_pos)
-                self.to_visit_list.pop(index)
-                if index > 0:
-                    self.to_visit_list.reverse()
-
-            prob_crew_cell = self.to_visit_list[0]
-
+        if len(self.to_visit_list) == 0:
             if self.is_own_design:
-                # A star call
-                self.traverse_path = self.astar_search_path(prob_crew_cell)
+                dummy, self.to_visit_list = self.shortest_route(self.get_best_zone())
             else:
-                if len(self.unsafe_cells):
-                    self.traverse_path = self.search_path(prob_crew_cell, None, self.unsafe_cells)
-                    if (self.traverse_path):
-                        self.traverse_path.pop(0)
-                        return True
+                dummy, self.to_visit_list = self.shortest_route(self.get_most_prob_cell())
+            index = self.to_visit_list.index(self.curr_pos)
+            self.to_visit_list.pop(index)
+            if index > 0:
+                self.to_visit_list.reverse()
 
-                if (not self.alien_evasion_data.is_beep_recv):
-                    self.traverse_path = self.search_path(prob_crew_cell)
+        prob_crew_cell = self.to_visit_list.pop(0)
+        if self.is_own_design:
+            self.traverse_path = self.astar_search_path(prob_crew_cell)
+        else:
+            if len(self.unsafe_cells):
+                self.traverse_path = self.search_path(prob_crew_cell, None, self.unsafe_cells)
 
-            if len(self.traverse_path) == 0:
-                self.logger.print(LOG_DEBUG, f"Unable to find a path....")
-                return False
-
-            self.to_visit_list.pop(0)
+        if self.traverse_path:
             self.traverse_path.pop(0)
-            self.logger.print(LOG_DEBUG, f"New path to cell {prob_crew_cell} was found, {self.traverse_path}")
+            return True
 
+        if (not self.alien_evasion_data.is_beep_recv):
+            self.traverse_path = self.search_path(prob_crew_cell)
+
+        if not self.traverse_path:
+            self.logger.print(LOG_DEBUG, f"Unable to find a path....")
+            return False
+
+        self.traverse_path.pop(0)
+        self.logger.print(LOG_DEBUG, f"New path to cell {prob_crew_cell} was found, {self.traverse_path}")
         return True
 
     def start_rescue(self): # working, finalllly ;-;
@@ -1424,7 +1367,6 @@ class ParentBot(SearchAlgo):
         self.logger.print_all_crew_data(LOG_DEBUG, self)
 
         while (True): # Keep trying till you find the crew
-            print(total_iter)
             if total_iter >= 1000:
                 saved = self.total_crew_to_save - len(self.all_crews)
                 if self.total_crew_to_save == 1 and len(self.all_crews) == 1:
@@ -1441,6 +1383,7 @@ class ParentBot(SearchAlgo):
             if self.alien_evasion_data.beep_count > 0:
                 self.compute_likely_alien_movements()
 
+            self.zone_vs_zone_prob.clear()
             self.update_alien_data()
             self.update_crew_search_data()
 
@@ -1562,7 +1505,6 @@ class Bot_1(ParentBot):
         crew_search_data = self.crew_search_data
         temp_search_data = self.temp_search_data
         temp_search_data.set_all_probs()
-        self.zone_vs_zone_prob.clear()
 
         for cell_cord in crew_search_data.crew_cells: # update probs for this round
             cell = self.ship.get_cell(cell_cord)
@@ -1674,7 +1616,6 @@ class Bot_4(ParentBot):
         temp_search_data = self.temp_search_data
         temp_search_data.set_all_probs()
         max_prob = 0
-        self.zone_vs_zone_prob.clear()
 
         is_visited = {}
         for key in crew_search_data.crew_cells_pair: # update probs for this round
@@ -1808,9 +1749,6 @@ class Bot_7(Bot_4):
 
         prob_cell_pair_mapping.clear()
         end = time()
-        if beep_count == 1 and beep_recv:
-            print(f'Time taken to complete {start - end} s')
-
 
     def update_alien_data(self):
         if (self.alien_evasion_data.beep_count == 0):
@@ -1878,13 +1816,12 @@ class Bot_7(Bot_4):
                 self.unsafe_cells.extend(unsafe_neighbours)
 
             end = time()
-            print(f'Time taken UAD :: {start - end}')
 
 class Bot_8(Bot_7):
     alien_config = TWO_ALIENS
 
     def __init__(self, ship, log_level = LOG_NONE):
-        super(Bot_5, self).__init__(ship, log_level)
+        super(Bot_8, self).__init__(ship, log_level)
         self.is_own_design = True
         self.idle_threshold = 0
 
@@ -2079,8 +2016,18 @@ def compare_multiple_alpha():
         for itr, value in enumerate(resc_val):
             print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" %  (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.crews_saved, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
 
+def compare_multiple_k():
+    global ALIEN_ZONE_SIZE
+    alpha_range = [round(ALIEN_ZONE_INCREASE + (ALIEN_ZONE_INCREASE * i), 2) for i in range(MAX_ALPHA_ITERATIONS)]
+    alpha_dict = run_multi_sim(alpha_range)
+    print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Crews Saved", "Success steps", "Failure steps", "stuck Steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
+    for alpha, resc_val in alpha_dict.items():
+        print(f"{'*'*82}{alpha}{'*'*82}")
+        for itr, value in enumerate(resc_val):
+            print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" %  (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.crews_saved, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
+
 # MAJOR ISSUES WITH ALL BOTS!!
 if __name__ == '__main__':
     # run_test()
-    run_multi_sim([ALPHA], True)
-    # compare_multiple_alpha()
+    # run_multi_sim([ALPHA], True)
+    compare_multiple_alpha()
