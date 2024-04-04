@@ -1029,21 +1029,20 @@ class ParentBot(SearchAlgo):
         curr_cell = self.ship.get_cell(self.curr_pos)
         bot_adj_cells = curr_cell.adj_cells
         safe_cells = list()
-        safe_neighbours = dict()
 
         for itr, cell_cord in enumerate(bot_adj_cells):
             cell = self.ship.get_cell(cell_cord)
             safe_cell = False
-            safe_neighbours[itr] = 0
+            safe_neighbours = 0
             if cell.alien_probs.alien_prob == ALIEN_NOT_PRESENT:
                 if cell not in self.unsafe_cells:
                     safe_cell = True
                     for neighbour in cell.adj_cells:
                         if neighbour not in self.unsafe_cells:
-                            safe_neighbours[itr] += 1
+                            safe_neighbours += 1
 
             if safe_cell:
-                safe_cells.append((cell_cord, safe_neighbours[itr]))
+                safe_cells.append((cell_cord, safe_neighbours))
 
         if len(safe_cells) > 0:
             safe_cells = sorted(safe_cells, key=lambda x: x[1], reverse=True)
