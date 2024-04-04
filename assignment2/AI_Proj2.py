@@ -14,7 +14,6 @@ BOT_CELL = 4
 CREW_CELL = 8
 ALIEN_CELL = 16
 BOT_CAUGHT_CELL = 32
-PRED_ALIEN_CELL = 64
 BOT_MOVEMENT_CELLS = OPEN_CELL | CREW_CELL | ALIEN_CELL
 ALIEN_MOVEMENT_CELLS = CREW_CELL | OPEN_CELL | BOT_CELL
 GRID_SIZE = 35
@@ -33,7 +32,6 @@ ALPHA = 0.5 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 4
 TOTAL_UNSAFE_CELLS = 5
 
-TOTAL_ITERATIONS = 5
 TOTAL_ITERATIONS = 10
 MAX_ALPHA_ITERATIONS = 10
 ALPHA_STEP_INCREASE = 0.05
@@ -645,6 +643,7 @@ class Ship:
         self.set_player_cell_type()
         self.assign_zones()
         self.reset_detection_zone()
+        self.place_aliens(2)
 
     def init_cell_details(self, cell_cord):
         cell = self.get_cell(cell_cord)
@@ -653,6 +652,18 @@ class Ship:
         cell.listen_beep.c1_beep_prob = LOOKUP_E[cell.listen_beep.crew_1_dist]
         cell.listen_beep.c2_beep_prob = LOOKUP_E[cell.listen_beep.crew_2_dist]
         cell.cord = cell_cord
+
+    def check_aliens_count(self, no_of_aliens):
+        if len(self.aliens) == no_of_aliens:
+            return
+
+        alien_cell = self.aliens.pop(1)
+        alien = self.get_cell(alien_cell)
+        if alien.cell_type & CREW_CELL:
+            self.get_cell(alien_cell).cell_type = CREW_CELL
+        else:
+            self.get_cell(alien_cell).cell_type = OPEN_CELL
+
 
     # The following methods are called from the bot
     def place_aliens(self, no_of_aliens):
@@ -673,7 +684,7 @@ class Ship:
 
             pending_aliens -= 1
 
-        self.aliens = self.initial_alien_pos
+        self.aliens = list(self.initial_alien_pos)
 
     def move_aliens(self, bot):
         for itr, alien in enumerate(self.aliens):
@@ -707,7 +718,7 @@ class Ship:
 
             if next_cell.cell_type & BOT_CELL:
                 self.logger.print(
-                    LOG_DEBUG,
+                    LOG_INFO,
                     f"Alien moves from current cell {old_alien_pos} to bot cell {alien_new_pos}",
                 )
                 self.bot_caught_cell = alien_new_pos
@@ -786,6 +797,7 @@ class Ship:
         # Need to make change here
         self.set_player_cell_type()
         self.reset_detection_zone()
+        self.aliens = list(self.initial_alien_pos)
         for cell in self.open_cells:
             self.get_cell(cell).cell_type = OPEN_CELL
 
@@ -912,7 +924,8 @@ class SearchAlgo:
         return []
 
     def place_aliens_handler(self):
-        self.ship.place_aliens(self.alien_config)
+        self.ship.check_aliens_count(self.alien_config)
+        print(self.__class__.__name__ , self.alien_config, self.ship.aliens)
 
 
 """ Main parent class for all our bots, contain most of the common bot logic """
@@ -1414,7 +1427,9 @@ class ParentBot(SearchAlgo):
             print(total_iter)
             if total_iter >= 1000:
                 saved = self.total_crew_to_save - len(self.all_crews)
-                if saved == -1:
+                if self.total_crew_to_save == 1 and len(self.all_crews) == 1:
+                    saved = 1
+                elif self.total_crew_to_save == 1 and len(self.all_crews) == 2:
                     saved = 0
                 return init_distance, total_iter, total_moves, BOT_STUCK, saved
 
@@ -1437,13 +1452,17 @@ class ParentBot(SearchAlgo):
                 if self.move_bot():
                     if self.is_rescued():
                         saved = self.total_crew_to_save - len(self.all_crews)
-                        if saved == -1:
+                        if self.total_crew_to_save == 1 and len(self.all_crews) == 1:
+                            saved = 1
+                        elif self.total_crew_to_save == 1 and len(self.all_crews) == 2:
                             saved = 0
                         return init_distance, total_iter, total_moves, BOT_SUCCESS, saved
 
                     elif self.is_caught:
                         saved = self.total_crew_to_save - len(self.all_crews)
-                        if saved == -1:
+                        if self.total_crew_to_save == 1 and len(self.all_crews) == 1:
+                            saved = 1
+                        elif self.total_crew_to_save == 1 and len(self.all_crews) == 2:
                             saved = 0
                         return init_distance, total_iter, total_moves, BOT_FAILED, saved
 
@@ -1459,7 +1478,9 @@ class ParentBot(SearchAlgo):
 
             if self.ship.move_aliens(self):
                 saved = self.total_crew_to_save - len(self.all_crews)
-                if saved == -1:
+                if self.total_crew_to_save == 1 and len(self.all_crews) == 1:
+                    saved = 1
+                elif self.total_crew_to_save == 1 and len(self.all_crews) == 2:
                     saved = 0
                 return init_distance, total_iter, total_moves, BOT_FAILED, saved
 
@@ -1719,7 +1740,7 @@ class Bot_7(Bot_4):
     def __init__(self, ship, log_level=LOG_NONE):
         super(Bot_7, self).__init__(ship, log_level)
         self.alien_evasion_data = Two_Alien_Evasion_Data(self.ship)
-    
+
     def get_initial_compute_cell_pairs(self):
         return self.alien_evasion_data.alien_cell_pair_list
 
@@ -1849,13 +1870,13 @@ class Bot_7(Bot_4):
                 self.unsafe_cells = [cell[1] for cell in prob_cell_list]
                 if not beep_recv:
                     self.unsafe_cells = self.unsafe_cells[:TOTAL_UNSAFE_CELLS]
-                
+
                 unsafe_neighbours = list()
                 for cell_cord in self.unsafe_cells:
                     cell = self.ship.get_cell(cell_cord)
                     unsafe_neighbours.append(cell.adj_cells)
                 self.unsafe_cells.extend(unsafe_neighbours)
-            
+
             end = time()
             print(f'Time taken UAD :: {start - end}')
 
