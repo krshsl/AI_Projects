@@ -31,7 +31,7 @@ ALPHA = 0.05 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 4
 TOTAL_UNSAFE_CELLS = 5
 
-TOTAL_ITERATIONS = 200
+TOTAL_ITERATIONS = 100
 MAX_ALPHA_ITERATIONS = 10
 ALPHA_STEP_INCREASE = 0.05
 ALIEN_ZONE_INCREASE = 1
@@ -140,10 +140,10 @@ class Logger:
             print("%8s %27s %3s %27s %27s %27s %27s %27s %27s %27s %27s %20s" % (cell_cord, crew_probs.crew_prob, crew_probs.bot_distance, crew_probs.beep_given_crew, crew_probs.no_beep_given_crew, crew_probs.crew_and_beep, crew_probs.crew_and_no_beep, crew_probs.crew_given_beep, crew_probs.crew_given_no_beep, crew_search_data.beep_prob,  crew_search_data.no_beep_prob,  crew_search_data.normalize_probs))
 
     def print_all_crew_data(self, log_level, bot):
-        if not self.check_log_level(log_level):
-            return
+        # if not self.check_log_level(log_level):
+        return
 
-        self.print_crew_data(bot.curr_pos, bot.ship, bot.crew_search_data, bot.total_beep, bot.is_beep_recv)
+        self.print_crew_data(bot.curr_pos, bot.ship, bot.crew_search_data, bot.total_beep, bot.crew_search_data.is_beep_recv)
 
 # Modularizing our knowledge base for readability
 class One_Alien_Evasion_Data:
