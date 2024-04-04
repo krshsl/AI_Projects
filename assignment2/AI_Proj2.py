@@ -2,7 +2,7 @@ from random import randint, uniform, choice
 from math import e as exp, ceil, sqrt, floor
 from inspect import currentframe
 from time import time
-from multiprocessing import Process, Queue, cpu_count
+from multiprocessing import Pool, cpu_count
 from itertools import permutations
 from heapq import heappop, heappush
 
@@ -27,12 +27,13 @@ Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 
 ALIEN_ZONE_SIZE = 3 # k - k >= 1, need to determine the large value
 SEARCH_ZONE_SIZE = 5
-ALPHA = 0.05 # avoid large alpha at the cost of performance
+ALPHA = 0.25 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 4
 TOTAL_UNSAFE_CELLS = 5
 
-TOTAL_ITERATIONS = 100
+TOTAL_ITERATIONS = 64
 MAX_ALPHA_ITERATIONS = 10
+MAX_K_ITERATIONS = 7
 ALPHA_STEP_INCREASE = 0.05
 ALIEN_ZONE_INCREASE = 1
 TOTAL_BOTS = 8
@@ -139,9 +140,32 @@ class Logger:
             crew_probs = ship.get_cell(cell_cord).crew_probs
             print("%8s %27s %3s %27s %27s %27s %27s %27s %27s %27s %27s %20s" % (cell_cord, crew_probs.crew_prob, crew_probs.bot_distance, crew_probs.beep_given_crew, crew_probs.no_beep_given_crew, crew_probs.crew_and_beep, crew_probs.crew_and_no_beep, crew_probs.crew_given_beep, crew_probs.crew_given_no_beep, crew_search_data.beep_prob,  crew_search_data.no_beep_prob,  crew_search_data.normalize_probs))
 
+    def print_all_crew_probs(self, curr_pos, ship, crew_search_data, total_beep, is_beep_recv):
+        print(currentframe().f_back.f_back.f_code.co_name, "::", currentframe().f_back.f_back.f_lineno, curr_pos, total_beep, is_beep_recv)
+        total_prob = 0.0
+        for key in crew_search_data.crew_cells_pair:
+            print(key, "::", end="\t")
+            for cells in crew_search_data.crew_cells_pair[key]:
+                total_prob += cells.crew_probs.crew_prob
+                print(cells.cell_2.cord, "::", cells.crew_probs.crew_prob, end = " ")
+            print()
+        for key in crew_search_data.crew_cells_pair:
+            print(key, "::", end="\t")
+            for cells in crew_search_data.crew_cells_pair[key]:
+                print(cells.cell_2.cord, "::", cells.crew_probs.no_beep_given_crew, end = " ")
+            print()
+        print(currentframe().f_back.f_back.f_code.co_name, "::", currentframe().f_back.f_back.f_lineno, curr_pos, total_prob, crew_search_data.crew_cells)
+
+    def print_all_pair_data(self, log_level, bot):
+        if not self.check_log_level(log_level):
+            return
+
+        self.print_all_crew_probs(bot.curr_pos, bot.ship, bot.crew_search_data, bot.total_beep, bot.crew_search_data.is_beep_recv)
+
+
     def print_all_crew_data(self, log_level, bot):
-        # if not self.check_log_level(log_level):
-        return
+        if not self.check_log_level(log_level):
+            return
 
         self.print_crew_data(bot.curr_pos, bot.ship, bot.crew_search_data, bot.total_beep, bot.crew_search_data.is_beep_recv)
 
@@ -265,7 +289,6 @@ class Cell_Pair:
 
     def init_probs(self):
         self.crew_probs = Crew_Probs()
-        self.cell_distances = 0
 
 class Alien_Cell_Pair(Cell_Pair):
     def __init__(self, cell_1, cell_2, ship):
@@ -344,7 +367,7 @@ class Two_Crew_Search_DS(One_Crew_Search_DS):
         super(Two_Crew_Search_DS, self).__init__(ship)
         self.crew_cells_pair = dict()
         crew_cells_len = len(self.crew_cells)
-        self.saved_crew_index = self.pending_crew_to_save = 0
+        self.pending_crew_to_save = 0
         self.saved_crew_cell = ()
         self.crew_cells_length = crew_cells_len * (crew_cells_len - 1)
 
@@ -352,25 +375,23 @@ class Two_Crew_Search_DS(One_Crew_Search_DS):
         crew_probs.bot_distance = get_manhattan_distance(curr_pos, cell_cord)
         crew_probs.no_beep_given_crew = LOOKUP_NOT_E[crew_probs.bot_distance]
 
-    def update_crew_pair(self, cell_pair, curr_pos, pending_crew):
+    def update_crew_pair(self, cell_pair, curr_pos):
         cell_1 = cell_pair.cell_1.cord
         cell_2 = cell_pair.cell_2.cord
-        cell_pair.cell_distances = 0
-        if pending_crew == 1:
+        if self.pending_crew_to_save == 1:
             self.update_cell_mov_vals(cell_pair.cell_1.crew_probs, curr_pos, cell_1)
             cell_pair.cell_2.crew_probs.bot_distance = 0
             cell_pair.cell_2.crew_probs.no_beep_given_crew = 1
-        elif pending_crew == 2:
+        elif self.pending_crew_to_save == 2:
             cell_pair.cell_1.crew_probs.bot_distance = 0
             cell_pair.cell_1.crew_probs.no_beep_given_crew = 1
             self.update_cell_mov_vals(cell_pair.cell_2.crew_probs, curr_pos, cell_2)
         else:
-            cell_pair.cell_distances = get_manhattan_distance(cell_1, cell_2)
             self.update_cell_mov_vals(cell_pair.cell_1.crew_probs, curr_pos, cell_1)
             self.update_cell_mov_vals(cell_pair.cell_2.crew_probs, curr_pos, cell_2)
 
-    def update_cell_pair_vals(self, cell_pair, curr_pos, pending_crew = 0):
-        self.update_crew_pair(cell_pair, curr_pos, pending_crew)
+    def update_cell_pair_vals(self, cell_pair, curr_pos):
+        self.update_crew_pair(cell_pair, curr_pos)
         crew_probs = cell_pair.crew_probs
         crew_probs.no_beep_given_crew = cell_pair.cell_1.crew_probs.no_beep_given_crew * cell_pair.cell_2.crew_probs.no_beep_given_crew
         crew_probs.beep_given_crew = 1 - crew_probs.no_beep_given_crew
@@ -401,21 +422,19 @@ class Two_Crew_Search_DS(One_Crew_Search_DS):
 
     # invoke when only 1 crew member is present
     def remove_cell_probs_1(self, rem_cell, curr_pos):
-        if curr_pos not in self.crew_cells:
-            return
-
         index = self.crew_cells.index(rem_cell)
         if self.pending_crew_to_save == 1: # 1 is left, so remove key here
-            cells_pair_list = self.crew_cells_pair[curr_pos]
+            cells_pair_list = self.crew_cells_pair[rem_cell]
             self.update_rem_crew_probs(cells_pair_list.pop(0))
-            del self.crew_cells_pair[curr_pos]
+            del self.crew_cells_pair[rem_cell]
         else: # 2 is left, so remove based on value here
-            if (index > self.saved_crew_index):
-                index -= 1
-            else:
-                self.saved_crew_index -= 1
             cell_pair_list = self.crew_cells_pair[self.saved_crew_cell]
-            self.update_rem_crew_probs(cell_pair_list.pop(index))
+            for itr, cell_pair in enumerate(cell_pair_list): # a tinsy bit costly here...
+                if rem_cell == cell_pair.cell_2.cord:
+                    self.update_rem_crew_probs(cell_pair)
+                    cell_pair_list.pop(itr)
+                    break
+
             if not len(cell_pair_list):
                 del self.crew_cells_pair[self.saved_crew_cell]
 
@@ -438,7 +457,7 @@ class Two_Crew_Search_DS(One_Crew_Search_DS):
             return
 
         index = self.crew_cells.index(curr_pos)
-        if pending_crew == 1: # retain cell 1, sinceccell 2 was found
+        if pending_crew == 1: # retain with respect to value
             for itr, key in enumerate(self.crew_cells):
                 final_index = index
                 if itr < index:
@@ -456,16 +475,17 @@ class Two_Crew_Search_DS(One_Crew_Search_DS):
                         self.update_rem_crew_probs(cells_pair_list.pop(0))
                     elif val_itr > final_index:
                         self.update_rem_crew_probs(cells_pair_list.pop(1))
-        else: # retain cell 2, since cell 1 was found
+        else: # retain with respect to key
             for itr, key in enumerate(self.crew_cells):
+                cells_pair_list = self.crew_cells_pair[key]
                 if itr != index:
-                    cells_pair_list = self.crew_cells_pair[key]
                     for val_itr in range(len(self.crew_cells) - 1):
                         self.update_rem_crew_probs(cells_pair_list.pop(0))
                     del self.crew_cells_pair[key]
+                else:
+                    self.update_rem_crew_probs(cells_pair_list.pop(index))
 
         self.pending_crew_to_save = pending_crew
-        self.saved_crew_index = index
         self.saved_crew_cell = curr_pos
         logger.print(LOG_DEBUG, f"Retaining following cell {curr_pos} from the list of probable crew cells {self.crew_cells}")
         self.print_map(curr_pos)
@@ -1241,6 +1261,8 @@ class ParentBot(SearchAlgo):
                 zone_as_list.append((key, self.zone_vs_zone_prob[key]))
 
         zone_as_list = sorted(zone_as_list, key=lambda data:-data[1])
+        if not zone_as_list:
+            return sorted(self.crew_search_data.crew_cells, key= lambda cell:(-self.ship.get_cell(cell).crew_probs.crew_prob, self.ship.get_cell(cell).crew_probs.bot_distance))[:3]
 
         # point to check, is it worth visiting a zone, if the zone value changes???
         if self.total_crew_to_save == 2: # for 2 crews, 2 zones can have a very high prob
@@ -1359,6 +1381,15 @@ class ParentBot(SearchAlgo):
         self.logger.print(LOG_DEBUG, f"New path to cell {prob_crew_cell} was found, {self.traverse_path}")
         return True
 
+    def get_saved(self):
+        saved = self.total_crew_to_save - len(self.all_crews)
+        if self.total_crew_to_save == 1 and len(self.all_crews) == 1:
+            saved = 1
+        elif self.total_crew_to_save == 1 and len(self.all_crews) == 2:
+            saved = 0
+
+        return saved
+
     def start_rescue(self): # working, finalllly ;-;
         total_moves = idle_steps = total_iter = 0
         keep_moving = False
@@ -1368,12 +1399,7 @@ class ParentBot(SearchAlgo):
 
         while (True): # Keep trying till you find the crew
             if total_iter >= 1000:
-                saved = self.total_crew_to_save - len(self.all_crews)
-                if self.total_crew_to_save == 1 and len(self.all_crews) == 1:
-                    saved = 1
-                elif self.total_crew_to_save == 1 and len(self.all_crews) == 2:
-                    saved = 0
-                return init_distance, total_iter, total_moves, BOT_STUCK, saved
+                return init_distance, total_iter, total_moves, BOT_STUCK, self.get_saved()
 
             total_iter += 1
             idle_steps += 1
@@ -1394,20 +1420,10 @@ class ParentBot(SearchAlgo):
             if keep_moving:
                 if self.move_bot():
                     if self.is_rescued():
-                        saved = self.total_crew_to_save - len(self.all_crews)
-                        if self.total_crew_to_save == 1 and len(self.all_crews) == 1:
-                            saved = 1
-                        elif self.total_crew_to_save == 1 and len(self.all_crews) == 2:
-                            saved = 0
-                        return init_distance, total_iter, total_moves, BOT_SUCCESS, saved
+                        return init_distance, total_iter, total_moves, BOT_SUCCESS, self.get_saved()
 
                     elif self.is_caught:
-                        saved = self.total_crew_to_save - len(self.all_crews)
-                        if self.total_crew_to_save == 1 and len(self.all_crews) == 1:
-                            saved = 1
-                        elif self.total_crew_to_save == 1 and len(self.all_crews) == 2:
-                            saved = 0
-                        return init_distance, total_iter, total_moves, BOT_FAILED, saved
+                        return init_distance, total_iter, total_moves, BOT_FAILED, self.get_saved()
 
                     self.is_bot_moved = True
                     total_moves += 1
@@ -1420,12 +1436,7 @@ class ParentBot(SearchAlgo):
                     self.made_move = False
 
             if self.ship.move_aliens(self):
-                saved = self.total_crew_to_save - len(self.all_crews)
-                if self.total_crew_to_save == 1 and len(self.all_crews) == 1:
-                    saved = 1
-                elif self.total_crew_to_save == 1 and len(self.all_crews) == 2:
-                    saved = 0
-                return init_distance, total_iter, total_moves, BOT_FAILED, saved
+                return init_distance, total_iter, total_moves, BOT_FAILED, self.get_saved()
 
     def max_alien_beep(self):
         k = ALIEN_ZONE_SIZE
@@ -1479,7 +1490,7 @@ class Bot_1(ParentBot):
             crew_search_data.normalize_probs = alpha_num * len(crew_search_data.crew_cells)
         elif crew_search_data.normalize_probs > 1.5:
             self.logger.print_all_crew_data(LOG_NONE, self)
-            print("THERE WAS A MAJOR NEWS!!!!")
+            print(self.__class__.__name__, "THERE WAS A MAJOR NEWS!!!!")
             exit(0)
 
         for cell_cord in crew_search_data.crew_cells:
@@ -1586,8 +1597,8 @@ class Bot_4(ParentBot):
             alpha_num = ADDITIVE_VALUE
             crew_search_data.normalize_probs = alpha_num * crew_search_data.crew_cells_length
         elif crew_search_data.normalize_probs > 1.5:
-            self.logger.print_all_crew_data(LOG_NONE, self)
-            print("THERE WAS A MAJOR NEWS!!!!")
+            self.logger.print_all_pair_data(LOG_NONE, self)
+            print(self.__class__.__name__, self.pending_crew, self.ship.crew_1, self.ship.crew_2, self.all_crews, "THERE WAS A MAJOR NEWS!!!!")
             exit(0)
 
         for key in self.crew_search_data.crew_cells_pair:
@@ -1599,7 +1610,7 @@ class Bot_4(ParentBot):
 
                 crew_probs.crew_prob = crew_probs.crew_prob / crew_search_data.normalize_probs
                 if (self.is_bot_moved):
-                    crew_search_data.update_crew_pair(cell_pair, self.curr_pos, self.pending_crew)
+                    crew_search_data.update_crew_pair(cell_pair, self.curr_pos)
                     crew_probs.no_beep_given_crew = cell_pair.cell_1.crew_probs.no_beep_given_crew * cell_pair.cell_2.crew_probs.no_beep_given_crew
                     crew_probs.beep_given_crew = 1 - crew_probs.no_beep_given_crew
 
@@ -1608,7 +1619,7 @@ class Bot_4(ParentBot):
                 temp_search_data.update_all_probs(crew_probs.crew_and_beep, crew_probs.crew_and_no_beep, crew_probs.crew_prob)
 
         crew_search_data.set_all_probs(temp_search_data.beep_prob, temp_search_data.no_beep_prob, temp_search_data.normalize_probs)
-        self.logger.print_all_crew_data(LOG_DEBUG, self)
+        self.logger.print_all_pair_data(LOG_DEBUG, self)
 
     def update_crew_search_data(self):
         super(Bot_4, self).update_crew_search_data()
@@ -1660,7 +1671,6 @@ class Bot_4(ParentBot):
         if old_val != self.pending_crew and len(self.all_crews):
             self.crew_search_data.retain_success_cell_probs(self.curr_pos, self.pending_crew, self.logger)
             self.rem_cell_for_crew_search(self.ship.get_cell(self.curr_pos))
-
         return ret_val
 
 class Bot_5(Bot_4):
@@ -1841,9 +1851,13 @@ BOT_NAMES = {
 }
 
 # Responsible for updating the alpha for each worker pool
-def update_lookup(alpha):
-    global LOOKUP_E, LOOKUP_NOT_E, ALPHA
-    ALPHA = alpha
+def update_lookup(data, is_k):
+    global LOOKUP_E, LOOKUP_NOT_E, ALPHA, ALIEN_ZONE_SIZE
+    if is_k:
+        ALIEN_ZONE_SIZE = data
+    else:
+        ALPHA = data
+
     LOOKUP_E = [(pow(exp, (-1*ALPHA*(i - 1)))) for i in range(GRID_SIZE*2 + 1)]
     LOOKUP_NOT_E = [(1-LOOKUP_E[i]) for i in range(GRID_SIZE*2 + 1)]
 
@@ -1868,8 +1882,8 @@ def bot_factory(itr, ship, log_level = LOG_NONE):
 
 # Test function
 def run_test(log_level = LOG_INFO):
-    update_lookup(ALPHA)
-    for itr in range(1):
+    update_lookup(ALPHA, "alpha")
+    for itr in range(10):
         ship = Ship(GRID_SIZE, log_level)
         ship.place_players()
         for i in range(TOTAL_BOTS):
@@ -1900,16 +1914,25 @@ class FINAL_OUT:
         pass
 
 # Runs n number of iteration for each bot for given alpha value
-def run_sim(iterations_range, queue, alpha_range):
-    alpha_dict = dict()
-    for alpha in alpha_range:
-        update_lookup(alpha)
+def run_sim(args):
+    iterations_range = args[0]
+    data_range = args[1]
+    data_dict = dict()
+    itr_data = []
+    is_k = True
+    if "alpha" in data_range:
+        itr_data = data_range["alpha"]
+        is_k = False
+    else:
+        itr_data = data_range["k"]
+
+    for data in itr_data:
+        update_lookup(data, is_k)
         temp_data_set = [FINAL_OUT() for j in range(TOTAL_BOTS)]
-        for itr in iterations_range:
+        for itr in range(iterations_range):
             print(itr+1, end = '\r')
             ship = Ship(GRID_SIZE)
             ship.place_players()
-            # ship.logger.print_grid(ship.grid)
             for bot_no in range(TOTAL_BOTS):
                 bot = bot_factory(bot_no, ship)
                 begin = time()
@@ -1932,47 +1955,45 @@ def run_sim(iterations_range, queue, alpha_range):
                 ship.reset_grid()
                 del bot
             del ship
-        alpha_dict[alpha] = temp_data_set
-    queue.put(alpha_dict)
+        data_dict[data] = temp_data_set
+    return data_dict
 
 # Creates "n" process, and runs multiple simulation for same value of alpha simulataenously
-def run_multi_sim(alpha_range, is_print = False):
+def run_multi_sim(data_range, is_print = False):
     begin = time()
-    alpha_dict = dict()
+    result_dict = dict()
     data_set = [FINAL_OUT() for j in range(TOTAL_BOTS)]
     processes = []
-    queue = Queue()
     if (is_print):
         print(f"Iterations begin...")
     core_count = cpu_count()
     total_iters = round(TOTAL_ITERATIONS/core_count)
     actual_iters = total_iters * core_count
+    total_data = []
     for itr in range(core_count):
-        p = Process(target=run_sim, args=(range(itr*total_iters, (itr+1)*total_iters), queue, alpha_range))
-        processes.append(p)
-        p.start()
+        total_data.append((total_iters, data_range))
 
-    for proc in processes:
-        proc.join()
-        temp_alpha_dict = queue.get()
-        for alpha, value in temp_alpha_dict.items():
-            if alpha not in alpha_dict:
-                alpha_dict[alpha] = value
-            else:
-                for i, val_range in enumerate(value):
-                    alpha_dict[alpha][i].distance += value[i].distance
-                    alpha_dict[alpha][i].total_iter += value[i].total_iter
-                    alpha_dict[alpha][i].total_moves += value[i].total_moves
-                    alpha_dict[alpha][i].success += value[i].success
-                    alpha_dict[alpha][i].success_steps += value[i].success_steps
-                    alpha_dict[alpha][i].failure += value[i].failure
-                    alpha_dict[alpha][i].failure_steps += value[i].failure_steps
-                    alpha_dict[alpha][i].stuck += value[i].stuck
-                    alpha_dict[alpha][i].stuck_steps += value[i].stuck_steps
-                    alpha_dict[alpha][i].crews_saved += value[i].crews_saved
-                    alpha_dict[alpha][i].time_taken += value[i].time_taken
+    with Pool(processes=20) as p:
+        result = p.map(run_sim, total_data)
+        for temp_alpha_dict in result:
+            for key, value in temp_alpha_dict.items():
+                if key not in result_dict:
+                    result_dict[key] = value
+                else:
+                    for i, val_range in enumerate(value):
+                        result_dict[key][i].distance += value[i].distance
+                        result_dict[key][i].total_iter += value[i].total_iter
+                        result_dict[key][i].total_moves += value[i].total_moves
+                        result_dict[key][i].success += value[i].success
+                        result_dict[key][i].success_steps += value[i].success_steps
+                        result_dict[key][i].failure += value[i].failure
+                        result_dict[key][i].failure_steps += value[i].failure_steps
+                        result_dict[key][i].stuck += value[i].stuck
+                        result_dict[key][i].stuck_steps += value[i].stuck_steps
+                        result_dict[key][i].crews_saved += value[i].crews_saved
+                        result_dict[key][i].time_taken += value[i].time_taken
 
-    for alpha, resc_val in alpha_dict.items():
+    for key, resc_val in result_dict.items():
         for itr, value in enumerate(resc_val):
             value.distance /= actual_iters
             value.total_iter /= actual_iters
@@ -1992,24 +2013,23 @@ def run_multi_sim(alpha_range, is_print = False):
     end = time()
 
     if (is_print):
-        for alpha, resc_val in alpha_dict.items():
-            print()
-            print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took time {end-begin} for alpha {alpha}")
+        for key, resc_val in result_dict.items():
+            print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took time {end-begin} for {data_range.items[0]} {key}")
             print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Crews Saved", "Success steps", "Failure steps", "Stuck steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
             for itr, value in enumerate(resc_val):
                 print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.crews_saved, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
     else:
-        print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took total time {end-begin} for alpha range {alpha_dict.keys()}")
+        print(f"Grid Size:{GRID_SIZE} for {actual_iters} iterations took total time {end-begin} for alpha range {result_dict.keys()}")
 
-    del queue
     del processes
-    return alpha_dict
+    return result_dict
 
 # Runs multiple simulations for multiple values of alpha concurrently
 def compare_multiple_alpha():
     global ALPHA
+    ALPHA = 0.05
     alpha_range = [round(ALPHA + (ALPHA_STEP_INCREASE * i), 2) for i in range(MAX_ALPHA_ITERATIONS)]
-    alpha_dict = run_multi_sim(alpha_range)
+    alpha_dict = run_multi_sim({"alpha" : alpha_range})
     print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Crews Saved", "Success steps", "Failure steps", "stuck Steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
     for alpha, resc_val in alpha_dict.items():
         print(f"{'*'*82}{alpha}{'*'*82}")
@@ -2018,16 +2038,19 @@ def compare_multiple_alpha():
 
 def compare_multiple_k():
     global ALIEN_ZONE_SIZE
-    alpha_range = [round(ALIEN_ZONE_INCREASE + (ALIEN_ZONE_INCREASE * i), 2) for i in range(MAX_ALPHA_ITERATIONS)]
-    alpha_dict = run_multi_sim(alpha_range)
+    ALIEN_ZONE_SIZE = 2
+    k_range = [round(ALIEN_ZONE_INCREASE + (ALIEN_ZONE_INCREASE * i), 2) for i in range(MAX_K_ITERATIONS)]
+    k_dict = run_multi_sim({"k" : k_range})
     print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Crews Saved", "Success steps", "Failure steps", "stuck Steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
-    for alpha, resc_val in alpha_dict.items():
-        print(f"{'*'*82}{alpha}{'*'*82}")
+    for k, resc_val in k_dict.items():
+        print(f"{'*'*82}{k}{'*'*82}")
         for itr, value in enumerate(resc_val):
             print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" %  (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.crews_saved, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
 
 # MAJOR ISSUES WITH ALL BOTS!!
 if __name__ == '__main__':
     # run_test()
-    # run_multi_sim([ALPHA], True)
+    # run_multi_sim({"alpha" : [ALPHA]}, True)
+    # run_multi_sim({"k" : [ALIEN_ZONE_SIZE]}, True)
     compare_multiple_alpha()
+    compare_multiple_k()
