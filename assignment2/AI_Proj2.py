@@ -2,6 +2,7 @@ from random import randint, uniform, choice
 from math import e as exp, ceil, sqrt, floor
 from inspect import currentframe
 from time import time
+from matplotlib import pyplot
 from multiprocessing import Pool, cpu_count
 from itertools import permutations
 from heapq import heappop, heappush
@@ -31,7 +32,7 @@ ALPHA = 0.25 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 0
 TOTAL_UNSAFE_CELLS = 6
 
-TOTAL_ITERATIONS = 64
+TOTAL_ITERATIONS = 10
 MAX_ALPHA_ITERATIONS = 10
 MAX_K_ITERATIONS = 7
 ALPHA_STEP_INCREASE = 0.05
@@ -173,6 +174,43 @@ class Logger:
 
         self.print_crew_data(bot.curr_pos, bot.ship, bot.crew_search_data, bot.total_beep, bot.crew_search_data.is_beep_recv)
 
+    def print_heat_map(self, grid, is_beep_recv, curr_pos, is_crew = True):
+        if IGNORE_GRID_DEBUG and not self.check_log_level(LOG_DEBUG_GRID):
+          return
+
+        prob_grid = []
+        prob_spread = list()
+        for cells in grid:
+            prob_cell = []
+            for cell in cells:
+                probs = 0
+                if is_crew:
+                    probs = cell.crew_probs.crew_prob
+                else:
+                    probs = cell.alien_probs.alien_prob
+
+                if cell.cell_type == CLOSED_CELL:
+                    prob_cell.append(float('nan'))
+                elif is_crew and cell.cell_type == (BOT_CELL|CREW_CELL):
+                    prob_cell.append(1)
+                else:
+                    prob_cell.append(probs)
+                    if not probs in prob_spread:
+                        prob_spread.append(probs)
+            prob_grid.append(prob_cell)
+
+        prob_spread.sort()
+        max_len = len(prob_spread) - 1
+
+        if is_crew:
+            prob_grid[curr_pos[0]][curr_pos[1]] = prob_spread[max_len]
+
+        pyplot.figure(figsize=(10,10))
+        pyplot.colorbar(pyplot.imshow(prob_grid, vmin=prob_spread[0], vmax=prob_spread[max_len]))
+        pyplot.title("Beep recv" if is_beep_recv else "Beep not recv")
+        pyplot.show()
+
+
 # Modularizing our knowledge base for readability
 class One_Alien_Evasion_Data:
     def __init__(self, ship):
@@ -184,13 +222,13 @@ class One_Alien_Evasion_Data:
         self.alien_movement_cells = set()
         self.is_beep_recv = False
         self.beep_prob = 0.0
+        self.no_beep_prob = 0.0
         self.beep_count = 0
 
         self.init_alien_cell_size = len(self.init_alien_cells)
         self.alien_cell_size = len(self.alien_cells)
-        self.init_alien_calcs()
 
-    def init_alien_calcs(self):
+    def init_alien_calcs(self, curr_pos = None):
         # Need to change this logic (1.5 secs everytime)
         for cell_cord in self.alien_cells:
             cell = self.ship.get_cell(cell_cord)
@@ -203,7 +241,7 @@ class One_Alien_Evasion_Data:
         total_iter = 0
         for cell_cord in reset_cells:
             cell = self.ship.get_cell(cell_cord)
-            if cell.cell_type & ~CLOSED_CELL:
+            if cell.cell_type != CLOSED_CELL:
                 total_iter += 1
                 cell.alien_probs.alien_prob = 0 if cell.within_detection_zone else 1/self.init_alien_cell_size
 
@@ -211,9 +249,10 @@ class Two_Alien_Evasion_Data(One_Alien_Evasion_Data):
     def __init__(self, ship):
         self.alien_cells_pair = dict()
         self.alien_cell_pair_list = list()
+        self.visited_cells = set()
         super(Two_Alien_Evasion_Data, self).__init__(ship)
 
-    def reset_alien_calcs(self):
+    def reset_alien_calcs(self, curr_cell):
         # reset new cell pairs to zero
         # set old cell pairs to 1/init_alien_cell_size
         len_alien_cell_pair = (self.init_alien_cell_size * (self.init_alien_cell_size - 1))/2
@@ -223,28 +262,32 @@ class Two_Alien_Evasion_Data(One_Alien_Evasion_Data):
             cell_2 = cell_pair.cell_2
             cell_pair.alien_probs.alien_prob = 0 if (cell_1.within_detection_zone or cell_2.within_detection_zone) else 1/len_alien_cell_pair
 
-
-    def init_alien_calcs(self):
+    def init_alien_calcs(self, curr_pos = None):
         len_alien_cell_pair = (self.init_alien_cell_size * (self.init_alien_cell_size - 1))/2
+        prob_alien_cells = self.ship.get_outer_cells(curr_pos) + self.ship.get_inner_border(curr_pos)
+        prob_alien_cells_len = len(prob_alien_cells)
         for key_itr, key in enumerate(self.alien_cells):
             if key_itr == self.alien_cell_size - 1:
                 continue
 
             for val_itr in range(key_itr + 1, self.alien_cell_size):
                 val = self.alien_cells[val_itr]
-                key_val = tuple(set((key, val)))
+                key_val = (key, val)
                 cell_pair = Alien_Cell_Pair(key_val[0], key_val[1], self.ship)
                 cell_1 = cell_pair.cell_1
                 cell_2 = cell_pair.cell_2
                 self.alien_cells_pair[key_val] = cell_pair
-                cell_pair.alien_probs.alien_prob = 0 if (cell_1.within_detection_zone or cell_2.within_detection_zone) else 1/len_alien_cell_pair
-                self.alien_cell_pair_list.append(key_val)
+                cell_pair.alien_probs.alien_prob = 0
+                if cell_1.cord in prob_alien_cells or cell_2.cord in prob_alien_cells:
+                    cell_pair.alien_probs.alien_prob = 1/prob_alien_cells_len
+                    self.present_alien_cells.append(key_val)
 
 
 class Alien_Probs:
     def __init__(self):
         self.alien_prob = ALIEN_NOT_PRESENT
         self.alien_and_beep = ALIEN_NOT_PRESENT
+        self.alien_and_no_beep = ALIEN_PRESENT
 
 class Crew_Probs: # contains all the prob of crew in each cell
     def __init__(self):
@@ -724,7 +767,7 @@ class Ship:
 
             else:
                 self.logger.print(
-                    LOG_DEBUG,
+                    LOG_INFO,
                     f"Alien moves from current cell {old_alien_pos} to open cell {alien_new_pos}",
                 )
                 if next_cell.cell_type & CREW_CELL:
@@ -763,10 +806,27 @@ class Ship:
                         and (i < curr_cell[0] - k or i > curr_cell[0] + k
                             or j < curr_cell[1] - k or j > curr_cell[1] + k):
                         cell = self.get_cell((i, j))
-                        if cell.cell_type & ~CLOSED_CELL:
+                        if cell.cell_type != CLOSED_CELL:
                              outer_cells.append((i, j))
 
         return outer_cells
+
+    def get_inner_border(self, curr_cell = None):
+        if curr_cell is None:
+            curr_cell = self.bot
+        inner_border = []
+        k = ALIEN_ZONE_SIZE
+
+        for i in range(curr_cell[0] - k, curr_cell[0] + k + 1):
+            for j in range(curr_cell[1] - k, curr_cell[1] + k + 1):
+                if 0 <= i < GRID_SIZE and 0 <= j < GRID_SIZE\
+                        and (i < curr_cell[0] - k + 1 or i > curr_cell[0] + k - 1
+                        or j < curr_cell[1] - k + 1 or j > curr_cell[1] + k - 1):
+                        cell = self.get_cell((i, j))
+                        if cell.cell_type != CLOSED_CELL:
+                            inner_border.append((i, j))
+
+        return inner_border
 
     def reset_detection_zone(self, curr_cell = None):
         if curr_cell is None: curr_cell = self.bot
@@ -853,9 +913,8 @@ class SearchAlgo:
         shortest_path_points = [points[i] for i in shortest_path]
         return next_point_index, shortest_path_points
 
-    def search_path(self, dest_cell, curr_pos = None, unsafe_cells = []):
-        if curr_pos is None:
-            curr_pos = self.curr_pos
+    def search_path(self, dest_cell, unsafe_cells = []):
+        curr_pos = self.curr_pos
 
         bfs_queue = []
         visited_cells = set()
@@ -864,6 +923,7 @@ class SearchAlgo:
         while bfs_queue:
             current_cell, path_traversed = bfs_queue.pop(0)
             if current_cell == dest_cell:
+                path_traversed.pop(0)
                 return path_traversed
             elif (current_cell in visited_cells):
                 continue
@@ -894,7 +954,10 @@ class SearchAlgo:
                 while current_node:
                     path.append(current_node.cord)
                     current_node = current_node.parent
-                return path[::-1]
+
+                path = path[::-1]
+                path.pop(0)
+                return path
 
             visited_set.add(current_node.cord)
 
@@ -986,40 +1049,21 @@ class ParentBot(SearchAlgo):
     def calc_initial_search_data(self):
         self.crew_search_data.init_crew_calcs(self.ship, self.curr_pos)
 
-    def find_traverse_path(self):
-        prob_crew_cell = ()
-        # Also compute if it is not in any neighbour zones
-        if self.is_escape_strategy:
-            self.traverse_path = self.find_escape_path()
-            if len(self.traverse_path) == 0:
-                # Sit and pray
-                return False
-        else:
-            if len(self.pred_crew_cells) != 0:
-                prob_crew_cell = self.pred_crew_cells.pop(0)
-                self.traverse_path = self.search_path(prob_crew_cell, None, self.unsafe_cells)
-                if len(self.traverse_path) == 0:
-                    self.traverse_path = self.search_path(prob_crew_cell)
-                self.logger.print(LOG_DEBUG, f"New path found, {self.traverse_path}. Pending cells to explore, {self.pred_crew_cells}")
-
-            if len(self.traverse_path) == 0: # some edge case handling
-                self.logger.print(LOG_DEBUG, f"Bot in {self.curr_pos} with crew cells {self.crew_search_data.crew_cells} and last prob_crew_cell was {prob_crew_cell}")
-                self.logger.print(LOG_DEBUG, f"Bot in {self.curr_pos} has to find crew({self.total_crew_to_save}) {self.ship.crew_1, self.ship.crew_2} with pending crew {self.pending_crew}")
-                self.logger.print(LOG_DEBUG, f"pred_crew_cells::{self.pred_crew_cells}")
-                self.logger.print(LOG_DEBUG, f"path_traversed {self.path_traversed}")
-                return False
-
-        self.traverse_path.pop(0)
-
-        return True
-
     def find_escape_path(self):
-        escape_path = self.find_nearest_safe_cell()
-        if not escape_path:
-            return []
+        safest_cells = []
+        if self.alien_config == 1:
+            safest_cells = sorted(self.alien_evasion_data.alien_movement_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob)
+        else :
+            safest_cells = sorted(self.alien_evasion_data.visited_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob)
+            print("safest_cells", safest_cells)
 
-        escape_path.pop(0)
 
+        escape_path = self.search_path(safest_cells[0], self.unsafe_cells)
+        # escape_path = self.find_nearest_safe_cell()
+        # if not escape_path:
+        #     return []
+
+        # escape_path.pop(0)
         return escape_path
 
     def find_nearest_safe_cell(self):
@@ -1029,16 +1073,13 @@ class ParentBot(SearchAlgo):
 
         for itr, cell_cord in enumerate(bot_adj_cells):
             cell = self.ship.get_cell(cell_cord)
-            safe_cell = False
             safe_neighbours = 0
-            if cell.alien_probs.alien_prob == ALIEN_NOT_PRESENT:
-                if cell not in self.unsafe_cells:
-                    safe_cell = True
-                    for neighbour in cell.adj_cells:
-                        if neighbour not in self.unsafe_cells:
-                            safe_neighbours += 1
+            if cell not in self.unsafe_cells:
+                for neighbour in cell.adj_cells:
+                    if neighbour not in self.unsafe_cells:
+                        safe_neighbours += 1
 
-            if safe_cell:
+            if safe_neighbours:
                 safe_cells.append((cell_cord, safe_neighbours))
 
         if len(safe_cells) > 0:
@@ -1053,79 +1094,42 @@ class ParentBot(SearchAlgo):
         P(A/B obs) = P(B obs/ A) P(A) / P(B obs)
     '''
     def update_alien_data(self):
-        if (self.alien_evasion_data.beep_count == 0):
-            if self.made_move:
-                self.alien_evasion_data.reset_alien_calcs(self.curr_pos)
-        else:
-            beep_recv = self.alien_evasion_data.is_beep_recv
-            self.alien_evasion_data.beep_prob = 0
-            prob_cell_list = list()
-            present_alien_cells = list()
+        beep_recv = self.alien_evasion_data.is_beep_recv
+        prob_cell_list = list()
+        present_alien_cells = list()
 
-            prob_alien_in_inner_cells = ALIEN_PRESENT if beep_recv else ALIEN_NOT_PRESENT
-            prob_alien_in_outer_cells = ALIEN_PRESENT if (not beep_recv) else ALIEN_NOT_PRESENT
+        prob_alien_in_inner_cells = ALIEN_PRESENT if beep_recv else ALIEN_NOT_PRESENT
+        prob_alien_in_outer_cells = ALIEN_PRESENT if (not beep_recv) else ALIEN_NOT_PRESENT
 
-            # Likelihood computation
-            for cell_cord in self.alien_evasion_data.alien_movement_cells:
-                cell = self.ship.get_cell(cell_cord)
-                prob_beep_gv_alien = prob_alien_in_inner_cells if cell.within_detection_zone else prob_alien_in_outer_cells
+        is_additive_amoothing = False
+        if not self.alien_evasion_data.beep_prob:
+            self.alien_evasion_data.beep_prob = ADDITIVE_VALUE * len(self.alien_evasion_data.alien_movement_cells)
 
-                if (cell.cord == self.curr_pos) or (prob_beep_gv_alien == ALIEN_NOT_PRESENT):
-                    cell.alien_probs.alien_prob = ALIEN_NOT_PRESENT
-                    continue
+        for cell_cord in self.alien_evasion_data.alien_movement_cells:
+            cell = self.ship.get_cell(cell_cord)
+            if is_additive_amoothing:
+                cell.alien_probs.alien_and_beep += ADDITIVE_VALUE
+            cell.alien_probs.alien_prob = cell.alien_probs.alien_and_beep/self.alien_evasion_data.beep_prob
+            if cell.zone_number not in self.zone_vs_zone_prob:
+                self.zone_vs_zone_prob[cell.zone_number] = 0
 
-                alien_prob = cell.alien_probs.alien_prob
-                cell.alien_probs.alien_and_beep = prob_beep_gv_alien * alien_prob
-                self.alien_evasion_data.beep_prob += cell.alien_probs.alien_and_beep
-                present_alien_cells.append(cell_cord)
+            self.zone_vs_zone_prob[cell.zone_number] += ALIEN_UTILITY*cell.alien_probs.alien_prob
+            prob_cell_list.append((cell.alien_probs.alien_prob, cell_cord))
 
-            is_additive_amoothing = False
-            if not self.alien_evasion_data.beep_prob:
-                self.alien_evasion_data.beep_prob = ADDITIVE_VALUE * len(present_alien_cells)
+        self.unsafe_cells = sorted(self.alien_evasion_data.alien_movement_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True)[:ALIEN_ZONE_SIZE+1]
+        unsafe_neighbors = []
+        for cell_cord in self.unsafe_cells:
+            cell = self.ship.get_cell(cell_cord)
+            unsafe_neighbors.extend(cell.adj_cells)
 
-            # Updating the alien prob from prior knowledge
-            for cell_cord in present_alien_cells:
-                cell = self.ship.get_cell(cell_cord)
-                if is_additive_amoothing:
-                    cell.alien_probs.alien_and_beep += ADDITIVE_VALUE
-                cell.alien_probs.alien_prob = cell.alien_probs.alien_and_beep/self.alien_evasion_data.beep_prob
-                if cell.zone_number not in self.zone_vs_zone_prob:
-                    self.zone_vs_zone_prob[cell.zone_number] = 0
-
-                self.zone_vs_zone_prob[cell.zone_number] += ALIEN_UTILITY*cell.alien_probs.alien_prob
-                dist_cell = get_manhattan_distance(self.curr_pos, cell_cord)
-                prob_cell_list.append((cell.alien_probs.alien_prob, cell_cord, dist_cell))
-
-            # Sorting by probability, used to track movements under limitation etc
-            cells_by_distance = sorted(prob_cell_list, key=lambda x: x[2], reverse=True)
-            self.alien_evasion_data.present_alien_cells = [cell[1] for cell in cells_by_distance]
-            if self.alien_evasion_data.beep_count > 0:
-                prob_cell_list = sorted(prob_cell_list, key=lambda x: x[0], reverse=True)
-                self.unsafe_cells = [cell[1] for cell in prob_cell_list][:ALIEN_ZONE_SIZE+1]
-                # if not beep_recv:
-                #     self.unsafe_cells = self.unsafe_cells[:TOTAL_UNSAFE_CELLS]
-
-                unsafe_neighbours = list()
-                for cell_cord in self.unsafe_cells:
-                    cell = self.ship.get_cell(cell_cord)
-                    unsafe_neighbours.append(cell.adj_cells)
-                self.unsafe_cells.extend(unsafe_neighbours)
-
+        self.unsafe_cells.extend(unsafe_neighbors)
 
     def compute_likely_alien_movements(self):
         beep_recv = self.alien_evasion_data.is_beep_recv
-        beep_count = self.alien_evasion_data.beep_count
 
-        if (beep_count == 1) and beep_recv:
-            self.alien_evasion_data.present_alien_cells = self.ship.get_outer_cells(self.curr_pos) + self.ship.cells_within_bot_zone
-
-        self.alien_evasion_data.alien_movement_cells = set()
         prob_cell_mapping = dict()
 
-        present_alien_cells = self.alien_evasion_data.present_alien_cells
-
-
-        for cell_cord in present_alien_cells:
+        for cell_cord in self.alien_evasion_data.present_alien_cells:
             self.logger.print(
                 LOG_DEBUG, f"Iterating for ::{cell_cord}"
             )
@@ -1133,12 +1137,13 @@ class ParentBot(SearchAlgo):
             possible_moves = cell.adj_cells
             total_moves = len(possible_moves)
 
-            if (total_moves == 0):
-                continue
-
-            if cell.cord not in prob_cell_mapping.keys():
+            if cell.cord not in prob_cell_mapping:
                 prob_cell_mapping[cell.cord] = cell.alien_probs.alien_prob
                 cell.alien_probs.alien_prob = 0
+
+            if (total_moves == 0):
+                cell.alien_probs.alien_prob = prob_cell_mapping[cell.cord]
+                continue
 
             self.logger.print(
                 LOG_DEBUG, f"prob_cell_mapping::{prob_cell_mapping}"
@@ -1153,8 +1158,18 @@ class ParentBot(SearchAlgo):
                 if alien_move not in prob_cell_mapping.keys():
                     prob_cell_mapping[alien_move] = adj_cell.alien_probs.alien_prob
                     adj_cell.alien_probs.alien_prob = 0
-                self.alien_evasion_data.alien_movement_cells.add(alien_move)
+
                 adj_cell.alien_probs.alien_prob += prob_cell_mapping[cell.cord]/total_moves
+                if (beep_recv and adj_cell.within_detection_zone and adj_cell != self.curr_pos):
+                    adj_cell.alien_probs.alien_and_beep = adj_cell.alien_probs.alien_prob
+                    self.alien_evasion_data.alien_movement_cells.add(alien_move)
+                elif (not beep_recv and not adj_cell.within_detection_zone):
+                    adj_cell.alien_probs.alien_and_beep = adj_cell.alien_probs.alien_prob
+                    self.alien_evasion_data.alien_movement_cells.add(alien_move)
+                else:
+                    adj_cell.alien_probs.alien_prob = adj_cell.alien_probs.alien_and_beep = 0
+
+                self.alien_evasion_data.beep_prob += adj_cell.alien_probs.alien_and_beep
 
         prob_cell_mapping.clear()
 
@@ -1185,7 +1200,7 @@ class ParentBot(SearchAlgo):
             self.ship.reset_detection_zone(self.curr_pos)
             self.made_move = True
 
-        # self.logger.print(LOG_NONE, f"Bot {self.last_pos} has moved to {self.curr_pos} trying to find {self.total_crew_to_save} crew pending")
+        self.logger.print(LOG_INFO, f"Bot {self.last_pos} has moved to {self.curr_pos} trying to find {self.total_crew_to_save} crew pending")
         return True
 
     def is_rescued(self):
@@ -1321,14 +1336,13 @@ class ParentBot(SearchAlgo):
             self.traverse_path = self.astar_search_path(self.traverse_path[-1], self.unsafe_cells)
 
             if self.traverse_path:
-                self.traverse_path.pop(0)
                 return True
 
-        if self.traverse_path and (self.traverse_path in self.unsafe_cells): # Escape path
-            self.traverse_path = self.search_path(self.traverse_path[-1], None, self.unsafe_cells)
+        if self.traverse_path and (any(to_check in self.traverse_path for to_check in self.unsafe_cells)): # Escape path
+            if not self.is_own_design:
+                self.traverse_path = self.search_path(self.traverse_path[-1], self.unsafe_cells)
 
             if self.traverse_path:
-                self.traverse_path.pop(0)
                 return True
             else:
                 if not self.old_path:
@@ -1337,7 +1351,7 @@ class ParentBot(SearchAlgo):
                 self.traverse_path = self.find_escape_path()
                 if self.traverse_path:
                     return True
-                return False
+            return False
 
         if self.traverse_path:
             return True
@@ -1364,10 +1378,9 @@ class ParentBot(SearchAlgo):
             self.traverse_path = self.astar_search_path(prob_crew_cell, self.unsafe_cells)
         else:
             if len(self.unsafe_cells):
-                self.traverse_path = self.search_path(prob_crew_cell, None, self.unsafe_cells)
+                self.traverse_path = self.search_path(prob_crew_cell, self.unsafe_cells)
 
         if self.traverse_path:
-            self.traverse_path.pop(0)
             return True
 
         if (not self.alien_evasion_data.is_beep_recv):
@@ -1377,7 +1390,6 @@ class ParentBot(SearchAlgo):
             self.logger.print(LOG_DEBUG, f"Unable to find a path....")
             return False
 
-        self.traverse_path.pop(0)
         self.logger.print(LOG_DEBUG, f"New path to cell {prob_crew_cell} was found, {self.traverse_path}")
         return True
 
@@ -1392,11 +1404,18 @@ class ParentBot(SearchAlgo):
 
     def start_rescue(self): # working, finalllly ;-;
         total_moves = idle_steps = total_iter = 0
-        keep_moving = False
+        bot_moved = keep_moving = False
         init_distance = self.rescue_info()
         self.calc_initial_search_data()
         self.logger.print_all_crew_data(LOG_DEBUG, self)
 
+        if self.alien_config == 1:
+            self.alien_evasion_data.init_alien_calcs()
+            self.alien_evasion_data.present_alien_cells = list(self.crew_search_data.crew_cells)
+            self.alien_evasion_data.present_alien_cells.append(self.curr_pos)
+
+        # self.logger.print_heat_map(self.ship.grid, self.crew_search_data.is_beep_recv, self.curr_pos)
+        self.logger.print_heat_map(self.ship.grid, self.alien_evasion_data.is_beep_recv, self.curr_pos, False)
         while (True): # Keep trying till you find the crew
             if total_iter >= 1000:
                 return init_distance, total_iter, total_moves, BOT_STUCK, self.get_saved()
@@ -1406,16 +1425,18 @@ class ParentBot(SearchAlgo):
             self.handle_alien_beep()
             self.handle_crew_beep()
 
-            if self.alien_evasion_data.beep_count > 0:
+            if (self.alien_evasion_data.beep_count > 0 and self.alien_config == 2) or (self.alien_config == 1):
+                self.alien_evasion_data.beep_prob = 0
+                self.alien_evasion_data.alien_movement_cells = set()
                 self.compute_likely_alien_movements()
+                self.alien_evasion_data.present_alien_cells = list(self.alien_evasion_data.alien_movement_cells)
 
             self.zone_vs_zone_prob.clear()
             self.update_alien_data()
             self.update_crew_search_data()
 
-            # if idle_steps >= self.idle_threshold or self.alien_evasion_data.beep_count > 0:
-            #     idle_steps = 0
-            #     keep_moving = self.calculate_best_path()
+            # self.logger.print_heat_map(self.ship.grid, self.crew_search_data.is_beep_recv, self.curr_pos)
+            self.logger.print_heat_map(self.ship.grid, self.alien_evasion_data.is_beep_recv, self.curr_pos, False)
 
             if self.calculate_best_path():
                 if self.move_bot():
@@ -1426,13 +1447,14 @@ class ParentBot(SearchAlgo):
                         return init_distance, total_iter, total_moves, BOT_FAILED, self.get_saved()
 
                     self.is_bot_moved = True
+                    bot_moved = True
                     total_moves += 1
                     idle_steps = 0
                     if self.curr_pos in self.crew_search_data.crew_cells:
                         self.remove_cell(self.curr_pos)
                 else:
                     idle_steps += 1
-                    keep_moving = False
+                    bot_moved = keep_moving = False
                     self.made_move = False
 
             if self.ship.move_aliens(self):
@@ -1688,30 +1710,19 @@ class Bot_7(Bot_4):
         super(Bot_7, self).__init__(ship, log_level)
         self.alien_evasion_data = Two_Alien_Evasion_Data(self.ship)
 
-    def get_initial_compute_cell_pairs(self):
-        return self.alien_evasion_data.alien_cell_pair_list
-
     def compute_likely_alien_movements(self):
-        start = time()
         beep_recv = self.alien_evasion_data.is_beep_recv
         beep_count = self.alien_evasion_data.beep_count
+        self.alien_evasion_data.visited_cells = set()
 
         if (beep_count == 1) and beep_recv:
-            self.present_alien_cells = self.get_initial_compute_cell_pairs()
-
-        self.alien_evasion_data.alien_movement_cells = set()
-
-        present_alien_cells = self.alien_evasion_data.present_alien_cells
+            self.alien_evasion_data.init_alien_calcs()
 
         prob_cell_pair_mapping = dict()
-
-        for key_val_cells in present_alien_cells:
+        for key_val_cells in self.alien_evasion_data.present_alien_cells:
             possible_moves = dict()
             cell_pair = self.alien_evasion_data.alien_cells_pair[key_val_cells]
             no_moves = 0
-            self.logger.print(
-                LOG_DEBUG, f"Iterating for ::{cell.cord}"
-            )
             cell_1 = cell_pair.cell_1
             cell_2 = cell_pair.cell_2
 
@@ -1743,92 +1754,79 @@ class Bot_7(Bot_4):
                 for alien_moves_2 in possible_moves[cell_2.cord]:
                     if alien_moves_1 == alien_moves_2:
                         continue
-                    adj_key_val_cell = tuple(set(alien_moves_1, alien_moves_2))
+
+                    adj_key_val_cell = (alien_moves_1, alien_moves_2)
+                    if adj_key_val_cell not in self.alien_evasion_data.alien_cells_pair:
+                        adj_key_val_cell = (alien_moves_2, alien_moves_1)
+                        if adj_key_val_cell not in self.alien_evasion_data.alien_cells_pair:
+                            continue
+
                     adj_cell_pair = self.alien_evasion_data.alien_cells_pair[adj_key_val_cell]
-                    if adj_key_val_cell not in prob_cell_pair_mapping.keys():
+                    if adj_key_val_cell not in prob_cell_pair_mapping:
                         prob_cell_pair_mapping[adj_key_val_cell] = adj_cell_pair.alien_probs.alien_prob
                         adj_cell_pair.alien_probs.alien_prob = 0
-                    self.alien_evasion_data.alien_movement_cells.add(adj_key_val_cell)
-                    adj_cell_pair.alien_probs.alien_prob += prob_cell_pair_mapping[cell.cord]/total_moves
+                    adj_cell_pair.alien_probs.alien_prob += prob_cell_pair_mapping[key_val_cells]/total_moves
+                    alien_cell_1 = self.ship.get_cell(alien_moves_1)
+                    alien_cell_2 = self.ship.get_cell(alien_moves_2)
+                    check_detetction = (alien_cell_1.within_detection_zone) or (alien_cell_1.within_detection_zone)
+                    if beep_recv and check_detetction and (not (alien_moves_1 == self.curr_pos or alien_moves_2 == self.curr_pos)):
+                        adj_cell_pair.alien_probs.alien_and_beep = adj_cell_pair.alien_probs.alien_prob
+                    elif (not beep_recv) and (not check_detetction):
+                        adj_cell_pair.alien_probs.alien_and_beep = adj_cell_pair.alien_probs.alien_prob
+                    else:
+                        alien_cell_1.alien_probs.alien_prob = 0.0
+                        alien_cell_2.alien_probs.alien_prob = 0.0
+                        adj_cell_pair.alien_probs.alien_prob = adj_cell_pair.alien_probs.alien_and_beep = 0
+
+                    if adj_cell_pair.alien_probs.alien_prob:
+                        self.alien_evasion_data.alien_movement_cells.add(adj_key_val_cell)
+                        self.alien_evasion_data.visited_cells.add(alien_moves_1)
+                        self.alien_evasion_data.visited_cells.add(alien_moves_2)
+                        self.alien_evasion_data.beep_prob += adj_cell_pair.alien_probs.alien_and_beep
 
             possible_moves.clear()
 
         prob_cell_pair_mapping.clear()
-        end = time()
 
     def update_alien_data(self):
         if (self.alien_evasion_data.beep_count == 0):
-            if self.made_move:
-                self.alien_evasion_data.reset_alien_calcs()
-        else:
-            start = time()
-            beep_recv = self.alien_evasion_data.is_beep_recv
-            self.alien_evasion_data.beep_prob = 0
-            prob_cell_list = list()
-            present_alien_cells = list()
-            visited_cells = set()
+            return
 
-            prob_alien_in_inner_cells = ALIEN_PRESENT if beep_recv else ALIEN_NOT_PRESENT
-            prob_alien_in_outer_cells = ALIEN_PRESENT if (not beep_recv) else ALIEN_NOT_PRESENT
+        beep_recv = self.alien_evasion_data.is_beep_recv
+        prob_cell_list = list()
+        present_alien_cells = list()
 
-            # Likelihood computation
-            for cell_pair_key in self.alien_evasion_data.alien_movement_cells:
-                cell_pair = self.alien_evasion_data.alien_cells_pair[cell_pair_key]
-                cell_1 = cell_pair.cell_1
-                cell_2 = cell_pair.cell_2
-                cell_1.alien_probs.alien_prob = 0
-                cell_2.alien_probs.alien_prob = 0
+        prob_alien_in_inner_cells = ALIEN_PRESENT if beep_recv else ALIEN_NOT_PRESENT
+        prob_alien_in_outer_cells = ALIEN_PRESENT if (not beep_recv) else ALIEN_NOT_PRESENT
 
-
-                prob_beep_gv_alien = prob_alien_in_inner_cells if (cell_1.within_detection_zone or cell_2.within_detection_zone) else prob_alien_in_outer_cells
-                if (self.curr_pos in cell_pair.cells) or (prob_beep_gv_alien == ALIEN_NOT_PRESENT):
-                    cell_pair.alien_probs.alien_prob = ALIEN_NOT_PRESENT
-                    continue
-
-                alien_prob = cell_pair.alien_probs.alien_prob
-                cell_pair.alien_probs.alien_and_beep = prob_beep_gv_alien * alien_prob
-                self.alien_evasion_data.beep_prob += cell_pair.alien_probs.alien_and_beep
-                present_alien_cells.append(cell_pair_key)
-
-            # Updating the alien prob from prior knowledge
-            for cell_pair_key in present_alien_cells:
-                cell_pair = self.alien_evasion_data.alien_cells_pair[cell_pair_key]
-                cell_pair.alien_probs.alien_prob = cell_pair.alien_probs.alien_and_beep/self.alien_evasion_data.beep_prob
-                for cell_cord in cell_pair.cells:
-                    # dist_cell = get_manhattan_distance(self.curr_pos, cell_cord)
-                    prob = cell_pair.alien_probs.alien_prob
-                    cell = self.ship.get_cell(cell_cord)
-                    cell.alien_probs.alien_prob += prob
-                    visited_cells.add(cell)
-
-            total_len = len(visited_cells)
-            for cell_cord in visited_cells:
-                dist_cell = get_manhattan_distance(self.curr_pos, cell_cord)
+        # Updating the alien prob from prior knowledge
+        total_cells = len(self.alien_evasion_data.visited_cells)
+        for cell_pair_key in self.alien_evasion_data.alien_movement_cells:
+            cell_pair = self.alien_evasion_data.alien_cells_pair[cell_pair_key]
+            cell_pair.alien_probs.alien_prob = cell_pair.alien_probs.alien_and_beep/self.alien_evasion_data.beep_prob
+            for cell_cord in cell_pair.cells:
+                # dist_cell = get_manhattan_distance(self.curr_pos, cell_cord)
+                prob = cell_pair.alien_probs.alien_prob/total_cells
                 cell = self.ship.get_cell(cell_cord)
-                cell.alien_probs.alien_prob /= total_len
-                prob_cell_list.append((cell.alien_probs.alien_prob, cell_cord, dist_cell))
 
                 if cell.zone_number not in self.zone_vs_zone_prob:
                     self.zone_vs_zone_prob[cell.zone_number] = 0
 
-                self.zone_vs_zone_prob[cell.zone_number] += ALIEN_UTILITY*cell.alien_probs.alien_prob/total_len
+                cell.alien_probs.alien_prob += prob
+                self.zone_vs_zone_prob[cell.zone_number] += ALIEN_UTILITY*prob
 
-            # Sorting by probability, used to track movements under limitation etc
-            # cells_by_distance = sorted(prob_cell_list, key=lambda x: x[2], reverse=True)
-            self.alien_evasion_data.present_alien_cells = present_alien_cells
-            if self.alien_evasion_data.beep_count > 0:
-                prob_cell_list = sorted(prob_cell_list, key=lambda x: x[0], reverse=True)
-                self.unsafe_cells = [cell[1] for cell in prob_cell_list][:ALIEN_ZONE_SIZE+1]
-                # if not beep_recv:
-                #     self.unsafe_cells = self.unsafe_cells
 
-                unsafe_neighbours = list()
-                for cell_cord in self.unsafe_cells:
-                    cell = self.ship.get_cell(cell_cord)
-                    unsafe_neighbours.append(cell.adj_cells)
-                self.unsafe_cells.extend(unsafe_neighbours)
+        self.unsafe_cells = sorted(self.alien_evasion_data.visited_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True)[:ALIEN_ZONE_SIZE+1]
+        print("Data 0", self.alien_evasion_data.visited_cells, self.alien_evasion_data.alien_movement_cells)
+        print("Data 1", sorted(self.alien_evasion_data.visited_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True), self.unsafe_cells)
+        unsafe_neighbors = []
+        for cell_cord in self.unsafe_cells:
+            cell = self.ship.get_cell(cell_cord)
+            unsafe_neighbors.extend(cell.adj_cells)
 
-            end = time()
+        self.unsafe_cells.extend(unsafe_neighbors)
+
+        print("Data 2", self.unsafe_cells)
 
 class Bot_8(Bot_7):
     alien_config = TWO_ALIENS
@@ -1865,23 +1863,23 @@ def update_lookup(data, is_k):
     LOOKUP_NOT_E = [(1-LOOKUP_E[i]) for i in range(GRID_SIZE*2 + 1)]
 
 def bot_factory(itr, ship, log_level = LOG_NONE):
-    if (itr == 0):
-        return Bot_1(ship, log_level)
-    elif (itr == 1):
-        return Bot_2(ship, log_level)
-    elif (itr == 2):
-        return Bot_3(ship, log_level)
-    elif (itr == 3):
-        return Bot_4(ship, log_level)
-    elif (itr == 4):
-        return Bot_5(ship, log_level)
-    elif (itr == 5):
-        return Bot_6(ship, log_level)
-    elif (itr == 6):
+    # if (itr == 0):
+    #     return Bot_1(ship, log_level)
+    # elif (itr == 1):
+    #     return Bot_2(ship, log_level)
+    # elif (itr == 2):
+    #     return Bot_3(ship, log_level)
+    # elif (itr == 3):
+    #     return Bot_4(ship, log_level)
+    # elif (itr == 4):
+    #     return Bot_5(ship, log_level)
+    # elif (itr == 5):
+    #     return Bot_6(ship, log_level)
+    # elif (itr == 6):
         return Bot_7(ship, log_level)
-    elif (itr == 7):
-        return Bot_8(ship, log_level)
-    return ParentBot(ship, log_level)
+    # elif (itr == 7):
+    #     return Bot_8(ship, log_level)
+    # return ParentBot(ship, log_level)
 
 # Test function
 def run_test(log_level = LOG_INFO):
@@ -1889,7 +1887,7 @@ def run_test(log_level = LOG_INFO):
     for itr in range(1):
         ship = Ship(GRID_SIZE, log_level)
         ship.place_players()
-        for i in range(TOTAL_BOTS):
+        for i in range(1):
             print(BOT_NAMES[i], i)
             begin = time()
             bot = bot_factory(i, ship, log_level)
@@ -1935,7 +1933,7 @@ def run_sim(args):
         # print(f"Verifying update (alpha vs k) for variable {varying_data}::{ALPHA}::{ALIEN_ZONE_SIZE}")
         temp_data_set = [FINAL_OUT() for j in range(TOTAL_BOTS)]
         for itr in range(iterations_range):
-            # print(itr+1, end = '\r') # MANNNYYY LINES PRINTED ON ILAB ;-;
+            print(itr+1, end = '\r') # MANNNYYY LINES PRINTED ON ILAB ;-;
             ship = Ship(GRID_SIZE)
             ship.place_players()
             for bot_no in range(TOTAL_BOTS):
