@@ -26,13 +26,13 @@ BOT_STUCK = 3
 X_COORDINATE_SHIFT = [1, 0, 0, -1]
 Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 
-ALIEN_ZONE_SIZE = 5 # k - k >= 1, need to determine the large value
+ALIEN_ZONE_SIZE = 3 # k - k >= 1, need to determine the large value
 SEARCH_ZONE_SIZE = 5
 ALPHA = 0.25 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 0
 TOTAL_UNSAFE_CELLS = 6
 
-TOTAL_ITERATIONS = 10
+TOTAL_ITERATIONS = 100
 MAX_ALPHA_ITERATIONS = 10
 MAX_K_ITERATIONS = 7
 ALPHA_STEP_INCREASE = 0.05
@@ -234,17 +234,6 @@ class One_Alien_Evasion_Data:
             cell = self.ship.get_cell(cell_cord)
             cell.alien_probs.alien_prob = 0 if cell.within_detection_zone else 1/self.init_alien_cell_size
 
-    def reset_alien_calcs(self, curr_cell):
-        cells_in_outer_border = self.ship.get_outer_cells(curr_cell)
-        cells_within_bot_zone = self.ship.cells_within_bot_zone
-        reset_cells = cells_in_outer_border + cells_within_bot_zone
-        total_iter = 0
-        for cell_cord in reset_cells:
-            cell = self.ship.get_cell(cell_cord)
-            if cell.cell_type != CLOSED_CELL:
-                total_iter += 1
-                cell.alien_probs.alien_prob = 0 if cell.within_detection_zone else 1/self.init_alien_cell_size
-
 class Two_Alien_Evasion_Data(One_Alien_Evasion_Data):
     def __init__(self, ship):
         self.alien_cells_pair = dict()
@@ -252,20 +241,9 @@ class Two_Alien_Evasion_Data(One_Alien_Evasion_Data):
         self.visited_cells = set()
         super(Two_Alien_Evasion_Data, self).__init__(ship)
 
-    def reset_alien_calcs(self, curr_cell):
-        # reset new cell pairs to zero
-        # set old cell pairs to 1/init_alien_cell_size
-        len_alien_cell_pair = (self.init_alien_cell_size * (self.init_alien_cell_size - 1))/2
-        for key_val in self.alien_cell_pair_list:
-            cell_pair = self.alien_cells_pair[key_val]
-            cell_1 = cell_pair.cell_1
-            cell_2 = cell_pair.cell_2
-            cell_pair.alien_probs.alien_prob = 0 if (cell_1.within_detection_zone or cell_2.within_detection_zone) else 1/len_alien_cell_pair
-
     def init_alien_calcs(self, curr_pos = None):
-        len_alien_cell_pair = (self.init_alien_cell_size * (self.init_alien_cell_size - 1))/2
         prob_alien_cells = self.ship.get_outer_cells(curr_pos) + self.ship.get_inner_border(curr_pos)
-        prob_alien_cells_len = len(prob_alien_cells)
+        alien_cell_prob = len(prob_alien_cells) * (self.alien_cell_size - 1) / 2
         for key_itr, key in enumerate(self.alien_cells):
             if key_itr == self.alien_cell_size - 1:
                 continue
@@ -279,7 +257,7 @@ class Two_Alien_Evasion_Data(One_Alien_Evasion_Data):
                 self.alien_cells_pair[key_val] = cell_pair
                 cell_pair.alien_probs.alien_prob = 0
                 if cell_1.cord in prob_alien_cells or cell_2.cord in prob_alien_cells:
-                    cell_pair.alien_probs.alien_prob = 1/prob_alien_cells_len
+                    cell_pair.alien_probs.alien_prob = 1/alien_cell_prob
                     self.present_alien_cells.append(key_val)
 
 
@@ -1051,20 +1029,27 @@ class ParentBot(SearchAlgo):
 
     def find_escape_path(self):
         safest_cells = []
-        if self.alien_config == 1:
-            safest_cells = sorted(self.alien_evasion_data.alien_movement_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob)
-        else :
-            safest_cells = sorted(self.alien_evasion_data.visited_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob)
-            print("safest_cells", safest_cells)
+        if self.alien_config == ONE_ALIEN:
+            safest_cells = [cell for cell in self.alien_evasion_data.alien_cells if cell not in self.alien_evasion_data.alien_movement_cells]
+        else:
+            safest_cells = [cell for cell in self.alien_evasion_data.alien_cells if cell not in self.alien_evasion_data.visited_cells]
+        
+        # Sorting safest cells by order of distance
+        safest_cells = sorted(safest_cells, key=lambda cell:self.ship.get_cell(cell).crew_probs.bot_distance)
 
-
-        escape_path = self.search_path(safest_cells[0], self.unsafe_cells)
+        for cell in safest_cells:
+            if self.is_own_design:
+                escape_path = self.astar_search_path(cell, self.unsafe_cells)
+            else:
+                escape_path = self.search_path(cell, self.unsafe_cells)
+            if escape_path:
+                return escape_path
         # escape_path = self.find_nearest_safe_cell()
         # if not escape_path:
         #     return []
 
         # escape_path.pop(0)
-        return escape_path
+        return []
 
     def find_nearest_safe_cell(self):
         curr_cell = self.ship.get_cell(self.curr_pos)
@@ -1409,10 +1394,9 @@ class ParentBot(SearchAlgo):
         self.calc_initial_search_data()
         self.logger.print_all_crew_data(LOG_DEBUG, self)
 
-        if self.alien_config == 1:
+        if self.alien_config == ONE_ALIEN:
             self.alien_evasion_data.init_alien_calcs()
-            self.alien_evasion_data.present_alien_cells = list(self.crew_search_data.crew_cells)
-            self.alien_evasion_data.present_alien_cells.append(self.curr_pos)
+            self.alien_evasion_data.present_alien_cells = list(self.alien_evasion_data.init_alien_cells)
 
         # self.logger.print_heat_map(self.ship.grid, self.crew_search_data.is_beep_recv, self.curr_pos)
         self.logger.print_heat_map(self.ship.grid, self.alien_evasion_data.is_beep_recv, self.curr_pos, False)
@@ -1425,7 +1409,7 @@ class ParentBot(SearchAlgo):
             self.handle_alien_beep()
             self.handle_crew_beep()
 
-            if (self.alien_evasion_data.beep_count > 0 and self.alien_config == 2) or (self.alien_config == 1):
+            if (self.alien_evasion_data.beep_count > 0 and self.alien_config == TWO_ALIENS) or (self.alien_config == ONE_ALIEN):
                 self.alien_evasion_data.beep_prob = 0
                 self.alien_evasion_data.alien_movement_cells = set()
                 self.compute_likely_alien_movements()
@@ -2061,8 +2045,8 @@ def compare_multiple_k():
 
 # MAJOR ISSUES WITH ALL BOTS!!
 if __name__ == '__main__':
-    run_test()
-    # run_multi_sim({"alpha" : [ALPHA]}, True)
+    # run_test()
+    run_multi_sim({"alpha" : [ALPHA]}, True)
     # run_multi_sim({"k" : [ALIEN_ZONE_SIZE]}, True)
     # compare_multiple_alpha()
     # compare_multiple_k()
