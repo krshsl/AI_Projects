@@ -228,11 +228,13 @@ class One_Alien_Evasion_Data:
         self.init_alien_cell_size = len(self.init_alien_cells)
         self.alien_cell_size = len(self.alien_cells)
 
-    def init_alien_calcs(self, curr_pos = None):
-        # Need to change this logic (1.5 secs everytime)
-        for cell_cord in self.alien_cells:
+    def init_alien_calcs(self, curr_pos):
+        prob_alien_cells = self.ship.get_outer_cells(curr_pos) + self.ship.get_inner_border(curr_pos)
+        prob_alien_cells_len = len(prob_alien_cells)
+        for cell_cord in prob_alien_cells:
             cell = self.ship.get_cell(cell_cord)
-            cell.alien_probs.alien_prob = 0 if cell.within_detection_zone else 1/self.init_alien_cell_size
+            cell.alien_probs.alien_prob = 1/prob_alien_cells_len
+            self.present_alien_cells.append(cell_cord)
 
 class Two_Alien_Evasion_Data(One_Alien_Evasion_Data):
     def __init__(self, ship):
@@ -241,7 +243,7 @@ class Two_Alien_Evasion_Data(One_Alien_Evasion_Data):
         self.visited_cells = set()
         super(Two_Alien_Evasion_Data, self).__init__(ship)
 
-    def init_alien_calcs(self, curr_pos = None):
+    def init_alien_calcs(self, curr_pos):
         prob_alien_cells = self.ship.get_outer_cells(curr_pos) + self.ship.get_inner_border(curr_pos)
         alien_cell_prob = len(prob_alien_cells) * (self.alien_cell_size - 1) / 2
         for key_itr, key in enumerate(self.alien_cells):
@@ -765,7 +767,7 @@ class Ship:
         for row in range(min_row, max_row + 1):
             for col in range(min_col, max_col + 1):
                 cell = self.get_cell((row, col))
-                if cell.cell_type & ~CLOSED_CELL:
+                if cell.cell_type != CLOSED_CELL:
                     cells_within_zone.append((row, col))
 
         return cells_within_zone
@@ -986,7 +988,6 @@ class ParentBot(SearchAlgo):
         self.path_traversed.append(self.curr_pos)
         self.all_crews = [self.ship.crew_1, self.ship.crew_2]
         self.saved_crew = ()
-        self.old_path = []
 
     def rescue_info(self):
         init_1_distance = self.ship.get_cell(self.curr_pos).listen_beep.crew_1_dist
@@ -1028,13 +1029,38 @@ class ParentBot(SearchAlgo):
         self.crew_search_data.init_crew_calcs(self.ship, self.curr_pos)
 
     def find_escape_path(self):
-        safest_cells = []
-        if self.alien_config == ONE_ALIEN:
-            safest_cells = [cell for cell in self.alien_evasion_data.alien_cells if cell not in self.alien_evasion_data.alien_movement_cells]
-        else:
-            safest_cells = [cell for cell in self.alien_evasion_data.alien_cells if cell not in self.alien_evasion_data.visited_cells]
+        if self.to_visit_list:
+            previous_visit = self.traverse_path[-1]
+            for cell in self.to_visit_list:
+                if self.is_own_design:
+                    self.traverse_path = self.astar_search_path(cell, self.unsafe_cells)
+                else:
+                    self.traverse_path = self.search_path(cell, self.unsafe_cells)
+                
+                if self.traverse_path:
+                    self.to_visit_list.remove(cell)
+                    self.to_visit_list.append(previous_visit)
+                    return 
+            
+            self.to_visit_list.append(previous_visit)
         
-        # Sorting safest cells by order of distance
+
+        safest_cells = []
+        alien_present_cells = set()
+        
+        if self.alien_config == ONE_ALIEN:
+            alien_present_cells = self.alien_evasion_data.alien_movement_cells
+        else:
+            alien_present_cells = self.alien_evasion_data.visited_cells
+
+        itr = 0
+        for cell in self.alien_evasion_data.alien_cells:
+            if itr == 5:
+                break
+            if cell not in alien_present_cells and self.ship.get_cell(cell).crew_probs.bot_distance <= 10:
+                safest_cells.append(cell)
+                itr += 1
+
         safest_cells = sorted(safest_cells, key=lambda cell:self.ship.get_cell(cell).crew_probs.bot_distance)
 
         for cell in safest_cells:
@@ -1044,11 +1070,6 @@ class ParentBot(SearchAlgo):
                 escape_path = self.search_path(cell, self.unsafe_cells)
             if escape_path:
                 return escape_path
-        # escape_path = self.find_nearest_safe_cell()
-        # if not escape_path:
-        #     return []
-
-        # escape_path.pop(0)
         return []
 
     def find_nearest_safe_cell(self):
@@ -1101,7 +1122,7 @@ class ParentBot(SearchAlgo):
             self.zone_vs_zone_prob[cell.zone_number] += ALIEN_UTILITY*cell.alien_probs.alien_prob
             prob_cell_list.append((cell.alien_probs.alien_prob, cell_cord))
 
-        self.unsafe_cells = sorted(self.alien_evasion_data.alien_movement_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True)[:ALIEN_ZONE_SIZE+1]
+        self.unsafe_cells = sorted(self.alien_evasion_data.alien_movement_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True)[:(ALIEN_ZONE_SIZE + 1)]
         unsafe_neighbors = []
         for cell_cord in self.unsafe_cells:
             cell = self.ship.get_cell(cell_cord)
@@ -1317,34 +1338,15 @@ class ParentBot(SearchAlgo):
         return True
 
     def calculate_best_path(self):
-        if self.is_own_design and self.traverse_path:
-            self.traverse_path = self.astar_search_path(self.traverse_path[-1], self.unsafe_cells)
-
-            if self.traverse_path:
-                return True
-
         if self.traverse_path and (any(to_check in self.traverse_path for to_check in self.unsafe_cells)): # Escape path
-            if not self.is_own_design:
-                self.traverse_path = self.search_path(self.traverse_path[-1], self.unsafe_cells)
-
+            # find_another_path - self.to_visit_list
+            self.traverse_path = self.find_escape_path()
             if self.traverse_path:
                 return True
-            else:
-                if not self.old_path:
-                    self.old_path = list(self.traverse_path)
-
-                self.traverse_path = self.find_escape_path()
-                if self.traverse_path:
-                    return True
             return False
 
         if self.traverse_path:
             return True
-        elif self.old_path:
-            self.traverse_path = self.old_path
-            self.old_path.clear()
-            if self.traverse_path:
-                return True
 
         self.is_continue_traversing()
 
@@ -1394,10 +1396,6 @@ class ParentBot(SearchAlgo):
         self.calc_initial_search_data()
         self.logger.print_all_crew_data(LOG_DEBUG, self)
 
-        if self.alien_config == ONE_ALIEN:
-            self.alien_evasion_data.init_alien_calcs()
-            self.alien_evasion_data.present_alien_cells = list(self.alien_evasion_data.init_alien_cells)
-
         # self.logger.print_heat_map(self.ship.grid, self.crew_search_data.is_beep_recv, self.curr_pos)
         self.logger.print_heat_map(self.ship.grid, self.alien_evasion_data.is_beep_recv, self.curr_pos, False)
         while (True): # Keep trying till you find the crew
@@ -1409,9 +1407,13 @@ class ParentBot(SearchAlgo):
             self.handle_alien_beep()
             self.handle_crew_beep()
 
-            if (self.alien_evasion_data.beep_count > 0 and self.alien_config == TWO_ALIENS) or (self.alien_config == ONE_ALIEN):
+            if self.alien_evasion_data.beep_count > 0:
                 self.alien_evasion_data.beep_prob = 0
                 self.alien_evasion_data.alien_movement_cells = set()
+
+                if self.alien_evasion_data.beep_count == 1 and self.alien_evasion_data.is_beep_recv:
+                    self.alien_evasion_data.init_alien_calcs(self.curr_pos)
+
                 self.compute_likely_alien_movements()
                 self.alien_evasion_data.present_alien_cells = list(self.alien_evasion_data.alien_movement_cells)
 
@@ -1696,11 +1698,7 @@ class Bot_7(Bot_4):
 
     def compute_likely_alien_movements(self):
         beep_recv = self.alien_evasion_data.is_beep_recv
-        beep_count = self.alien_evasion_data.beep_count
         self.alien_evasion_data.visited_cells = set()
-
-        if (beep_count == 1) and beep_recv:
-            self.alien_evasion_data.init_alien_calcs()
 
         prob_cell_pair_mapping = dict()
         for key_val_cells in self.alien_evasion_data.present_alien_cells:
@@ -1800,7 +1798,7 @@ class Bot_7(Bot_4):
                 self.zone_vs_zone_prob[cell.zone_number] += ALIEN_UTILITY*prob
 
 
-        self.unsafe_cells = sorted(self.alien_evasion_data.visited_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True)[:ALIEN_ZONE_SIZE+1]
+        self.unsafe_cells = sorted(self.alien_evasion_data.visited_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True)[:(ALIEN_ZONE_SIZE + 1)]
         print("Data 0", self.alien_evasion_data.visited_cells, self.alien_evasion_data.alien_movement_cells)
         print("Data 1", sorted(self.alien_evasion_data.visited_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True), self.unsafe_cells)
         unsafe_neighbors = []
@@ -2044,9 +2042,9 @@ def compare_multiple_k():
             print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" %  (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.crews_saved, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
 
 # MAJOR ISSUES WITH ALL BOTS!!
-if __name__ == '__main__':
+# if __name__ == '__main__':
     # run_test()
-    run_multi_sim({"alpha" : [ALPHA]}, True)
+    # run_multi_sim({"alpha" : [ALPHA]}, True)
     # run_multi_sim({"k" : [ALIEN_ZONE_SIZE]}, True)
     # compare_multiple_alpha()
     # compare_multiple_k()
