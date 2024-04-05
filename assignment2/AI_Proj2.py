@@ -1101,9 +1101,9 @@ class ParentBot(SearchAlgo):
             self.alien_evasion_data.present_alien_cells = [cell[1] for cell in cells_by_distance]
             if self.alien_evasion_data.beep_count > 0:
                 prob_cell_list = sorted(prob_cell_list, key=lambda x: x[0], reverse=True)
-                self.unsafe_cells = [cell[1] for cell in prob_cell_list]
-                if not beep_recv:
-                    self.unsafe_cells = self.unsafe_cells[:TOTAL_UNSAFE_CELLS]
+                self.unsafe_cells = [cell[1] for cell in prob_cell_list][:ALIEN_ZONE_SIZE+1]
+                # if not beep_recv:
+                #     self.unsafe_cells = self.unsafe_cells[:TOTAL_UNSAFE_CELLS]
 
                 unsafe_neighbours = list()
                 for cell_cord in self.unsafe_cells:
@@ -1437,13 +1437,6 @@ class ParentBot(SearchAlgo):
 
             if self.ship.move_aliens(self):
                 return init_distance, total_iter, total_moves, BOT_FAILED, self.get_saved()
-
-    def max_alien_beep(self):
-        k = ALIEN_ZONE_SIZE
-        if k == 1:
-            return 0
-        else:
-            return ceil(k/2)
 
 """ Bot 1 as per given specification """
 class Bot_1(ParentBot):
@@ -1825,9 +1818,9 @@ class Bot_7(Bot_4):
             self.alien_evasion_data.present_alien_cells = present_alien_cells
             if self.alien_evasion_data.beep_count > 0:
                 prob_cell_list = sorted(prob_cell_list, key=lambda x: x[0], reverse=True)
-                self.unsafe_cells = [cell[1] for cell in prob_cell_list]
-                if not beep_recv:
-                    self.unsafe_cells = self.unsafe_cells[:TOTAL_UNSAFE_CELLS]
+                self.unsafe_cells = [cell[1] for cell in prob_cell_list][:ALIEN_ZONE_SIZE+1]
+                # if not beep_recv:
+                #     self.unsafe_cells = self.unsafe_cells
 
                 unsafe_neighbours = list()
                 for cell_cord in self.unsafe_cells:
