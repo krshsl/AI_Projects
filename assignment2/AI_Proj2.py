@@ -28,8 +28,8 @@ Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 ALIEN_ZONE_SIZE = 5 # k - k >= 1, need to determine the large value
 SEARCH_ZONE_SIZE = 5
 ALPHA = 0.25 # avoid large alpha at the cost of performance
-IDLE_BEEP_COUNT = 4
-TOTAL_UNSAFE_CELLS = 5
+IDLE_BEEP_COUNT = 0
+TOTAL_UNSAFE_CELLS = 6
 
 TOTAL_ITERATIONS = 64
 MAX_ALPHA_ITERATIONS = 10
@@ -38,9 +38,9 @@ ALPHA_STEP_INCREASE = 0.05
 ALIEN_ZONE_INCREASE = 1
 TOTAL_BOTS = 8
 
-DISTANCE_UTILITY=0.075 #DON'T WANT DISTANCE TO BE A MAJOR CONTRIBUTOR....
+DISTANCE_UTILITY=0.05 #DON'T WANT DISTANCE TO BE A MAJOR CONTRIBUTOR....
 ALIEN_UTILITY=-1.5 #ALIENS ARE ALWAYS DANGEROUS!?!
-CREW_UTILITY=1.15 #LET THIS PLAY SOME ROLE???
+CREW_UTILITY=1 #LET THIS PLAY SOME ROLE???
 
 LOG_NONE = 0
 LOG_DEBUG_ALIEN = 0.5
@@ -869,7 +869,7 @@ class SearchAlgo:
                 continue
 
             visited_cells.add(current_cell)
-            neighbors = get_neighbors(self.ship.size, current_cell, self.ship.grid, BOT_MOVEMENT_CELLS)
+            neighbors = self.ship.get_cell(current_cell).adj_cells
             for neighbor in neighbors:
                 if ((neighbor not in visited_cells) and
                     (neighbor not in unsafe_cells)):
@@ -877,13 +877,8 @@ class SearchAlgo:
 
         return [] #God forbid, this should never happen
 
-    # A-star search implementation
-    def astar_heuristic(self, node, goal):
-        return abs(node.cord[0] - goal[0]) + abs(node.cord[1] - goal[1])
-
-    def astar_search_path(self, dest_cell, curr_pos = None):
-        if curr_pos is None:
-            curr_pos = self.curr_pos
+    def astar_search_path(self, dest_cell, unsafe_cells):
+        curr_pos = self.curr_pos
 
         open_list = list()
         visited_set = set()
@@ -903,16 +898,18 @@ class SearchAlgo:
 
             visited_set.add(current_node.cord)
 
-            for neighbour in get_neighbors(self.ship.size, current_node.cord, self.ship.grid, BOT_MOVEMENT_CELLS):
-                if neighbour in visited_set:
+            for neighbour in self.ship.get_cell(current_node.cord).adj_cells:
+                if (neighbour in visited_set) or (neighbour in unsafe_cells):
                     continue
 
                 new_node = CellSearchNode(neighbour, current_node)
 
-                alien_prob = self.ship.get_cell(new_node.cord).alien_probs.alien_prob
+                cell = self.ship.get_cell(new_node.cord)
+                alien_prob = cell.alien_probs.alien_prob
+                crew_prob = cell.crew_probs.crew_prob
                 new_node.actual_est = current_node.actual_est + 1
-                new_node.heuristic_est = self.astar_heuristic(new_node, dest_cell)
-                new_node.total_cost = new_node.actual_est + new_node.heuristic_est + (1 / (1 + alien_prob))
+                new_node.heuristic_est = get_manhattan_distance(new_node.cord, dest_cell)
+                new_node.total_cost = new_node.actual_est - (crew_prob) + (new_node.heuristic_est * DISTANCE_UTILITY) + (2 * alien_prob) # avoid aliens!!!
 
                 heappush(open_list, new_node)
 
@@ -1216,7 +1213,7 @@ class ParentBot(SearchAlgo):
 
     def remove_nearby_cells(self):
         crew_search_data = self.crew_search_data
-        neighbors = get_neighbors(self.ship.size, self.curr_pos, self.ship.grid, BOT_MOVEMENT_CELLS)
+        neighbors = self.ship.get_cell(self.curr_pos).adj_cells
         for neighbor in neighbors:
             self.remove_cell(neighbor)
 
@@ -1256,10 +1253,8 @@ class ParentBot(SearchAlgo):
         curr_zone = self.ship.get_cell(self.curr_pos).zone_number
         curr_zone_pos = (curr_zone%SEARCH_ZONE_SIZE, floor(curr_zone/SEARCH_ZONE_SIZE))
         for key in self.zone_vs_zone_prob:
-            distance = abs(curr_zone_pos[0] - key%SEARCH_ZONE_SIZE) + abs(curr_zone_pos[1] - floor(key/SEARCH_ZONE_SIZE))
-            if distance == 0:
-                distance = 0.75
-            self.zone_vs_zone_prob[key] += 0.075/distance #don't want distance to play a major role...
+            # distance = abs(curr_zone_pos[0] - key%SEARCH_ZONE_SIZE) + abs(curr_zone_pos[1] - floor(key/SEARCH_ZONE_SIZE))
+            # self.zone_vs_zone_prob[key] -= DISTANCE_UTILITY*distance #don't want distance to play a major factor...
 
             if key in self.crew_search_data.all_crew_zones:
                 zone_as_list.append((key, self.zone_vs_zone_prob[key]))
@@ -1312,7 +1307,7 @@ class ParentBot(SearchAlgo):
                 if x == y:
                     common_elements.append(x)
 
-            if len(common_elements) < total_elements/2:
+            if len(common_elements) < total_elements * .75:
                 for element in common_elements:
                     self.to_visit_list.remove(element)
 
@@ -1322,11 +1317,15 @@ class ParentBot(SearchAlgo):
         return True
 
     def calculate_best_path(self):
+        if self.is_own_design and self.traverse_path:
+            self.traverse_path = self.astar_search_path(self.traverse_path[-1], self.unsafe_cells)
+
+            if self.traverse_path:
+                self.traverse_path.pop(0)
+                return True
+
         if self.traverse_path and (self.traverse_path in self.unsafe_cells): # Escape path
-            if self.is_own_design:
-                self.traverse_path = self.astar_search_path(self.traverse_path[-1])
-            else:
-                self.traverse_path = self.search_path(self.traverse_path[-1], None, self.unsafe_cells)
+            self.traverse_path = self.search_path(self.traverse_path[-1], None, self.unsafe_cells)
 
             if self.traverse_path:
                 self.traverse_path.pop(0)
@@ -1362,7 +1361,7 @@ class ParentBot(SearchAlgo):
 
         prob_crew_cell = self.to_visit_list.pop(0)
         if self.is_own_design:
-            self.traverse_path = self.astar_search_path(prob_crew_cell)
+            self.traverse_path = self.astar_search_path(prob_crew_cell, self.unsafe_cells)
         else:
             if len(self.unsafe_cells):
                 self.traverse_path = self.search_path(prob_crew_cell, None, self.unsafe_cells)
@@ -1414,11 +1413,11 @@ class ParentBot(SearchAlgo):
             self.update_alien_data()
             self.update_crew_search_data()
 
-            if idle_steps >= self.idle_threshold or self.alien_evasion_data.beep_count > 0:
-                idle_steps = 0
-                keep_moving = self.calculate_best_path()
+            # if idle_steps >= self.idle_threshold or self.alien_evasion_data.beep_count > 0:
+            #     idle_steps = 0
+            #     keep_moving = self.calculate_best_path()
 
-            if keep_moving:
+            if self.calculate_best_path():
                 if self.move_bot():
                     if self.is_rescued():
                         return init_distance, total_iter, total_moves, BOT_SUCCESS, self.get_saved()
@@ -1535,6 +1534,7 @@ class Bot_1(ParentBot):
         if self.total_crew_count == 1:
             if self.curr_pos == self.ship.crew_1:
                 self.logger.print(LOG_INFO, f"Bot has saved crew member at cell {self.ship.crew_1}")
+                self.all_crews.remove(self.curr_pos)
                 return True
             return False
         else:
@@ -1893,7 +1893,7 @@ def bot_factory(itr, ship, log_level = LOG_NONE):
 # Test function
 def run_test(log_level = LOG_INFO):
     update_lookup(ALPHA, False)
-    for itr in range(10):
+    for itr in range(1):
         ship = Ship(GRID_SIZE, log_level)
         ship.place_players()
         for i in range(TOTAL_BOTS):
