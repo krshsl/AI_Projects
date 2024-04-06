@@ -30,9 +30,9 @@ ALIEN_ZONE_SIZE = 3 # k - k >= 1, need to determine the large value
 SEARCH_ZONE_SIZE = 5
 ALPHA = 0.25 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 0
-TOTAL_UNSAFE_CELLS = 6
+TOTAL_UNSAFE_CELLS = 8
 
-TOTAL_ITERATIONS = 100
+TOTAL_ITERATIONS = 64
 MAX_ALPHA_ITERATIONS = 10
 MAX_K_ITERATIONS = 7
 ALPHA_STEP_INCREASE = 0.05
@@ -747,7 +747,7 @@ class Ship:
 
             else:
                 self.logger.print(
-                    LOG_INFO,
+                    LOG_DEBUG,
                     f"Alien moves from current cell {old_alien_pos} to open cell {alien_new_pos}",
                 )
                 if next_cell.cell_type & CREW_CELL:
@@ -1036,19 +1036,17 @@ class ParentBot(SearchAlgo):
                     self.traverse_path = self.astar_search_path(cell, self.unsafe_cells)
                 else:
                     self.traverse_path = self.search_path(cell, self.unsafe_cells)
-                
+
                 if self.traverse_path:
                     self.to_visit_list.remove(cell)
                     self.to_visit_list.append(previous_visit)
-                    return 
-            
+                    return self.traverse_path
+
             self.to_visit_list.append(previous_visit)
-        
 
         safest_cells = []
         alien_present_cells = set()
-        
-        if self.alien_config == ONE_ALIEN:
+        if self.compute_movement_config == ONE_ALIEN:
             alien_present_cells = self.alien_evasion_data.alien_movement_cells
         else:
             alien_present_cells = self.alien_evasion_data.visited_cells
@@ -1062,12 +1060,12 @@ class ParentBot(SearchAlgo):
                 itr += 1
 
         safest_cells = sorted(safest_cells, key=lambda cell:self.ship.get_cell(cell).crew_probs.bot_distance)
-
         for cell in safest_cells:
             if self.is_own_design:
                 escape_path = self.astar_search_path(cell, self.unsafe_cells)
             else:
                 escape_path = self.search_path(cell, self.unsafe_cells)
+
             if escape_path:
                 return escape_path
         return []
@@ -1134,7 +1132,6 @@ class ParentBot(SearchAlgo):
         beep_recv = self.alien_evasion_data.is_beep_recv
 
         prob_cell_mapping = dict()
-
         for cell_cord in self.alien_evasion_data.present_alien_cells:
             self.logger.print(
                 LOG_DEBUG, f"Iterating for ::{cell_cord}"
@@ -1206,7 +1203,7 @@ class ParentBot(SearchAlgo):
             self.ship.reset_detection_zone(self.curr_pos)
             self.made_move = True
 
-        self.logger.print(LOG_INFO, f"Bot {self.last_pos} has moved to {self.curr_pos} trying to find {self.total_crew_to_save} crew pending")
+        self.logger.print(LOG_DEBUG, f"Bot {self.last_pos} has moved to {self.curr_pos} trying to find {self.total_crew_to_save} crew pending")
         return True
 
     def is_rescued(self):
@@ -1339,11 +1336,11 @@ class ParentBot(SearchAlgo):
 
     def calculate_best_path(self):
         if self.traverse_path and (any(to_check in self.traverse_path for to_check in self.unsafe_cells)): # Escape path
-            # find_another_path - self.to_visit_list
             self.traverse_path = self.find_escape_path()
             if self.traverse_path:
                 return True
-            return False
+
+            return False # sit and pray...
 
         if self.traverse_path:
             return True
@@ -1691,6 +1688,7 @@ class Bot_6(Bot_3):
 
 class Bot_7(Bot_4):
     alien_config = TWO_ALIENS
+    compute_movement_config = TWO_ALIENS
 
     def __init__(self, ship, log_level=LOG_NONE):
         super(Bot_7, self).__init__(ship, log_level)
@@ -1799,8 +1797,6 @@ class Bot_7(Bot_4):
 
 
         self.unsafe_cells = sorted(self.alien_evasion_data.visited_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True)[:(ALIEN_ZONE_SIZE + 1)]
-        print("Data 0", self.alien_evasion_data.visited_cells, self.alien_evasion_data.alien_movement_cells)
-        print("Data 1", sorted(self.alien_evasion_data.visited_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True), self.unsafe_cells)
         unsafe_neighbors = []
         for cell_cord in self.unsafe_cells:
             cell = self.ship.get_cell(cell_cord)
@@ -1808,11 +1804,7 @@ class Bot_7(Bot_4):
 
         self.unsafe_cells.extend(unsafe_neighbors)
 
-        print("Data 2", self.unsafe_cells)
-
 class Bot_8(Bot_7):
-    alien_config = TWO_ALIENS
-
     def __init__(self, ship, log_level = LOG_NONE):
         super(Bot_8, self).__init__(ship, log_level)
         self.is_own_design = True
@@ -1845,23 +1837,23 @@ def update_lookup(data, is_k):
     LOOKUP_NOT_E = [(1-LOOKUP_E[i]) for i in range(GRID_SIZE*2 + 1)]
 
 def bot_factory(itr, ship, log_level = LOG_NONE):
-    # if (itr == 0):
-    #     return Bot_1(ship, log_level)
-    # elif (itr == 1):
-    #     return Bot_2(ship, log_level)
-    # elif (itr == 2):
-    #     return Bot_3(ship, log_level)
-    # elif (itr == 3):
-    #     return Bot_4(ship, log_level)
-    # elif (itr == 4):
-    #     return Bot_5(ship, log_level)
-    # elif (itr == 5):
-    #     return Bot_6(ship, log_level)
-    # elif (itr == 6):
+    if (itr == 0):
+        return Bot_1(ship, log_level)
+    elif (itr == 1):
+        return Bot_2(ship, log_level)
+    elif (itr == 2):
+        return Bot_3(ship, log_level)
+    elif (itr == 3):
+        return Bot_4(ship, log_level)
+    elif (itr == 4):
+        return Bot_5(ship, log_level)
+    elif (itr == 5):
+        return Bot_6(ship, log_level)
+    elif (itr == 6):
         return Bot_7(ship, log_level)
-    # elif (itr == 7):
-    #     return Bot_8(ship, log_level)
-    # return ParentBot(ship, log_level)
+    elif (itr == 7):
+        return Bot_8(ship, log_level)
+    return ParentBot(ship, log_level)
 
 # Test function
 def run_test(log_level = LOG_INFO):
@@ -1869,7 +1861,7 @@ def run_test(log_level = LOG_INFO):
     for itr in range(1):
         ship = Ship(GRID_SIZE, log_level)
         ship.place_players()
-        for i in range(1):
+        for i in range(TOTAL_BOTS):
             print(BOT_NAMES[i], i)
             begin = time()
             bot = bot_factory(i, ship, log_level)
@@ -1915,7 +1907,7 @@ def run_sim(args):
         # print(f"Verifying update (alpha vs k) for variable {varying_data}::{ALPHA}::{ALIEN_ZONE_SIZE}")
         temp_data_set = [FINAL_OUT() for j in range(TOTAL_BOTS)]
         for itr in range(iterations_range):
-            print(itr+1, end = '\r') # MANNNYYY LINES PRINTED ON ILAB ;-;
+            # print(itr+1, end = '\r') # MANNNYYY LINES PRINTED ON ILAB ;-;
             ship = Ship(GRID_SIZE)
             ship.place_players()
             for bot_no in range(TOTAL_BOTS):
@@ -2041,10 +2033,9 @@ def compare_multiple_k():
         for itr, value in enumerate(resc_val):
             print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" %  (BOT_NAMES[itr], value.success, value.failure, value.stuck, value.distance, value.crews_saved, value.success_steps, value.failure_steps, value.stuck_steps, value.total_iter, value.idle_moves, value.total_moves, value.time_taken))
 
-# MAJOR ISSUES WITH ALL BOTS!!
-# if __name__ == '__main__':
+if __name__ == '__main__':
     # run_test()
     # run_multi_sim({"alpha" : [ALPHA]}, True)
     # run_multi_sim({"k" : [ALIEN_ZONE_SIZE]}, True)
-    # compare_multiple_alpha()
-    # compare_multiple_k()
+    compare_multiple_alpha()
+    compare_multiple_k()
