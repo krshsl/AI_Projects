@@ -28,14 +28,14 @@ Y_COORDINATE_SHIFT = [0, 1, -1, 0]
 
 ALIEN_ZONE_SIZE = 5 # k - k >= 1, need to determine the large value
 SEARCH_ZONE_SIZE = 5
-ALPHA = 0.25 # avoid large alpha at the cost of performance
+ALPHA = 0.3 # avoid large alpha at the cost of performance
 IDLE_BEEP_COUNT = 0
 TOTAL_UNSAFE_CELLS = 8
 
 TOTAL_ITERATIONS = 64
-MAX_ALPHA_ITERATIONS = 10
-MAX_K_ITERATIONS = 7
-ALPHA_STEP_INCREASE = 0.05
+MAX_ALPHA_ITERATIONS = 5
+MAX_K_ITERATIONS = 5
+ALPHA_STEP_INCREASE = 0.1
 ALIEN_ZONE_INCREASE = 1
 TOTAL_BOTS = 8
 
@@ -2013,7 +2013,7 @@ def run_multi_sim(data_range, is_print = False):
 # Runs multiple simulations for multiple values of alpha concurrently
 def compare_multiple_alpha():
     global ALPHA
-    ALPHA = 0.05
+    ALPHA = 0.1
     alpha_range = [round(ALPHA + (ALPHA_STEP_INCREASE * i), 2) for i in range(MAX_ALPHA_ITERATIONS)]
     alpha_dict = run_multi_sim({"alpha" : alpha_range})
     print ("%20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s %20s" % ("Bot", "Success Rate", "Failure Rate", "Stuck", "Distance", "Crews Saved", "Success steps", "Failure steps", "stuck Steps", "Total Iterations", "Idle steps", "Steps moved", "Time taken"))
