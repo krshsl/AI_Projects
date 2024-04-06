@@ -39,9 +39,9 @@ ALPHA_STEP_INCREASE = 0.1
 ALIEN_ZONE_INCREASE = 1
 TOTAL_BOTS = 8
 
-DISTANCE_UTILITY=0.5 #DON'T WANT DISTANCE TO BE A MAJOR CONTRIBUTOR, SINCE EXPLORATION HELPS!??
-ALIEN_UTILITY=-2.5 #ALIENS ARE ALWAYS DANGEROUS!?!
-CREW_UTILITY=1.25 #LET THIS PLAY SOME ROLE???
+DISTANCE_UTILITY=0.4 #DON'T WANT DISTANCE TO BE A MAJOR CONTRIBUTOR, SINCE EXPLORATION ALWAYS HELPS!??
+ALIEN_UTILITY=-2.25 #ALIENS ARE ALWAYS DANGEROUS!?!
+CREW_UTILITY=1.25 #GOAL IS TO SAVE THE CREW, SO LET'S GIVE IT SOME REWARD
 
 LOG_NONE = 0
 LOG_DEBUG_ALIEN = 0.5
@@ -954,7 +954,7 @@ class SearchAlgo:
                 crew_prob = cell.crew_probs.crew_prob
                 new_node.actual_est = current_node.actual_est + 1
                 new_node.heuristic_est = get_manhattan_distance(new_node.cord, dest_cell)
-                new_node.total_cost = new_node.actual_est - (CREW_UTILITY * crew_prob) + (new_node.heuristic_est * DISTANCE_UTILITY) + (2.5 * alien_prob) # avoid aliens!!!
+                new_node.total_cost = new_node.actual_est - (CREW_UTILITY * crew_prob) + (new_node.heuristic_est * DISTANCE_UTILITY) + (2.25 * alien_prob) # avoid aliens!!!
 
                 heappush(open_list, new_node)
 
@@ -1948,7 +1948,7 @@ def run_multi_sim(data_range, is_print = False):
     processes = []
     print(f"Iterations begin...")
     core_count = cpu_count()
-    total_iters = round(core_count/core_count)
+    total_iters = 1 #let's do 1 iterations for each core
     actual_iters = total_iters * core_count
     total_data = []
     for itr in range(core_count):
