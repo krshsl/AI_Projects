@@ -39,9 +39,9 @@ ALPHA_STEP_INCREASE = 0.1
 ALIEN_ZONE_INCREASE = 1
 TOTAL_BOTS = 8
 
-DISTANCE_UTILITY=0.05 #DON'T WANT DISTANCE TO BE A MAJOR CONTRIBUTOR....
-ALIEN_UTILITY=-1.5 #ALIENS ARE ALWAYS DANGEROUS!?!
-CREW_UTILITY=1 #LET THIS PLAY SOME ROLE???
+DISTANCE_UTILITY=0.5 #DON'T WANT DISTANCE TO BE A MAJOR CONTRIBUTOR, SINCE EXPLORATION HELPS!??
+ALIEN_UTILITY=-2.5 #ALIENS ARE ALWAYS DANGEROUS!?!
+CREW_UTILITY=1.25 #LET THIS PLAY SOME ROLE???
 
 LOG_NONE = 0
 LOG_DEBUG_ALIEN = 0.5
@@ -239,7 +239,6 @@ class One_Alien_Evasion_Data:
 class Two_Alien_Evasion_Data(One_Alien_Evasion_Data):
     def __init__(self, ship):
         self.alien_cells_pair = dict()
-        self.alien_cell_pair_list = list()
         self.visited_cells = set()
         super(Two_Alien_Evasion_Data, self).__init__(ship)
 
@@ -253,10 +252,13 @@ class Two_Alien_Evasion_Data(One_Alien_Evasion_Data):
             for val_itr in range(key_itr + 1, self.alien_cell_size):
                 val = self.alien_cells[val_itr]
                 key_val = (key, val)
-                cell_pair = Alien_Cell_Pair(key_val[0], key_val[1], self.ship)
+                cell_pair = Alien_Cell_Pair(key, val, self.ship)
                 cell_1 = cell_pair.cell_1
                 cell_2 = cell_pair.cell_2
-                self.alien_cells_pair[key_val] = cell_pair
+                if key not in self.alien_cells_pair:
+                    self.alien_cells_pair[key] = dict()
+
+                self.alien_cells_pair[key][val] = cell_pair
                 cell_pair.alien_probs.alien_prob = 0
                 if cell_1.cord in prob_alien_cells or cell_2.cord in prob_alien_cells:
                     cell_pair.alien_probs.alien_prob = 1/alien_cell_prob
@@ -952,7 +954,7 @@ class SearchAlgo:
                 crew_prob = cell.crew_probs.crew_prob
                 new_node.actual_est = current_node.actual_est + 1
                 new_node.heuristic_est = get_manhattan_distance(new_node.cord, dest_cell)
-                new_node.total_cost = new_node.actual_est - (crew_prob) + (new_node.heuristic_est * DISTANCE_UTILITY) + (2 * alien_prob) # avoid aliens!!!
+                new_node.total_cost = new_node.actual_est - (CREW_UTILITY * crew_prob) + (new_node.heuristic_est * DISTANCE_UTILITY) + (2.5 * alien_prob) # avoid aliens!!!
 
                 heappush(open_list, new_node)
 
@@ -1098,13 +1100,6 @@ class ParentBot(SearchAlgo):
         P(A/B obs) = P(B obs/ A) P(A) / P(B obs)
     '''
     def update_alien_data(self):
-        beep_recv = self.alien_evasion_data.is_beep_recv
-        prob_cell_list = list()
-        present_alien_cells = list()
-
-        prob_alien_in_inner_cells = ALIEN_PRESENT if beep_recv else ALIEN_NOT_PRESENT
-        prob_alien_in_outer_cells = ALIEN_PRESENT if (not beep_recv) else ALIEN_NOT_PRESENT
-
         is_additive_amoothing = False
         if not self.alien_evasion_data.beep_prob:
             self.alien_evasion_data.beep_prob = ADDITIVE_VALUE * len(self.alien_evasion_data.alien_movement_cells)
@@ -1118,9 +1113,8 @@ class ParentBot(SearchAlgo):
                 self.zone_vs_zone_prob[cell.zone_number] = 0
 
             self.zone_vs_zone_prob[cell.zone_number] += ALIEN_UTILITY*cell.alien_probs.alien_prob
-            prob_cell_list.append((cell.alien_probs.alien_prob, cell_cord))
 
-        self.unsafe_cells = sorted(self.alien_evasion_data.alien_movement_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True)[:(ALIEN_ZONE_SIZE + 1)]
+        self.unsafe_cells = sorted(self.alien_evasion_data.alien_movement_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True)[:(ALIEN_ZONE_SIZE + self.alien_config)]
         unsafe_neighbors = []
         for cell_cord in self.unsafe_cells:
             cell = self.ship.get_cell(cell_cord)
@@ -1272,7 +1266,7 @@ class ParentBot(SearchAlgo):
         curr_zone_pos = (curr_zone%SEARCH_ZONE_SIZE, floor(curr_zone/SEARCH_ZONE_SIZE))
         for key in self.zone_vs_zone_prob:
             # distance = abs(curr_zone_pos[0] - key%SEARCH_ZONE_SIZE) + abs(curr_zone_pos[1] - floor(key/SEARCH_ZONE_SIZE))
-            # self.zone_vs_zone_prob[key] -= DISTANCE_UTILITY*distance #don't want distance to play a major factor...
+            # self.zone_vs_zone_prob[key] -= 0.05*distance #don't want distance to play a major factor...
 
             if key in self.crew_search_data.all_crew_zones:
                 zone_as_list.append((key, self.zone_vs_zone_prob[key]))
@@ -1405,17 +1399,18 @@ class ParentBot(SearchAlgo):
             self.handle_crew_beep()
 
             if self.alien_evasion_data.beep_count > 0:
-                self.alien_evasion_data.beep_prob = 0
-                self.alien_evasion_data.alien_movement_cells = set()
-
                 if self.alien_evasion_data.beep_count == 1 and self.alien_evasion_data.is_beep_recv:
                     self.alien_evasion_data.init_alien_calcs(self.curr_pos)
 
+                self.alien_evasion_data.beep_prob = 0
+                self.alien_evasion_data.alien_movement_cells = set()
                 self.compute_likely_alien_movements()
                 self.alien_evasion_data.present_alien_cells = list(self.alien_evasion_data.alien_movement_cells)
 
             self.zone_vs_zone_prob.clear()
-            self.update_alien_data()
+            if self.alien_evasion_data.beep_count > 0:
+                self.update_alien_data()
+
             self.update_crew_search_data()
 
             # self.logger.print_heat_map(self.ship.grid, self.crew_search_data.is_beep_recv, self.curr_pos)
@@ -1701,7 +1696,7 @@ class Bot_7(Bot_4):
         prob_cell_pair_mapping = dict()
         for key_val_cells in self.alien_evasion_data.present_alien_cells:
             possible_moves = dict()
-            cell_pair = self.alien_evasion_data.alien_cells_pair[key_val_cells]
+            cell_pair = self.alien_evasion_data.alien_cells_pair[key_val_cells[0]][key_val_cells[1]]
             no_moves = 0
             cell_1 = cell_pair.cell_1
             cell_2 = cell_pair.cell_2
@@ -1717,17 +1712,20 @@ class Bot_7(Bot_4):
             if ((no_moves == 2)):
                 continue
 
-            if key_val_cells not in prob_cell_pair_mapping.keys():
-                prob_cell_pair_mapping[key_val_cells] = cell_pair.alien_probs.alien_prob
+            if key_val_cells[0] not in prob_cell_pair_mapping:
+                prob_cell_pair_mapping[key_val_cells[0]] = dict()
+
+            if key_val_cells[1] not in prob_cell_pair_mapping[key_val_cells[0]]:
+                prob_cell_pair_mapping[key_val_cells[0]][key_val_cells[1]] = cell_pair.alien_probs.alien_prob
                 cell_pair.alien_probs.alien_prob = 0
 
-            self.logger.print(
-                LOG_DEBUG, f"prob_cell_mapping::{prob_cell_pair_mapping}"
-            )
+            # self.logger.print(
+            #     LOG_DEBUG, f"prob_cell_mapping::{prob_cell_pair_mapping}"
+            # )
 
-            self.logger.print(
-                LOG_DEBUG, f"Neighbours for the current cell pair::{possible_moves}"
-            )
+            # self.logger.print(
+            #     LOG_DEBUG, f"Neighbours for the current cell pair::{possible_moves}"
+            # )
 
             # Cell pair movement logic
             for alien_moves_1 in possible_moves[cell_1.cord]:
@@ -1736,16 +1734,29 @@ class Bot_7(Bot_4):
                         continue
 
                     adj_key_val_cell = (alien_moves_1, alien_moves_2)
-                    if adj_key_val_cell not in self.alien_evasion_data.alien_cells_pair:
+                    if adj_key_val_cell[0] not in self.alien_evasion_data.alien_cells_pair:
                         adj_key_val_cell = (alien_moves_2, alien_moves_1)
-                        if adj_key_val_cell not in self.alien_evasion_data.alien_cells_pair:
+                        if adj_key_val_cell[0] not in self.alien_evasion_data.alien_cells_pair:
+                            continue
+                        if adj_key_val_cell[1] not in self.alien_evasion_data.alien_cells_pair[adj_key_val_cell[0]]:
                             continue
 
-                    adj_cell_pair = self.alien_evasion_data.alien_cells_pair[adj_key_val_cell]
-                    if adj_key_val_cell not in prob_cell_pair_mapping:
-                        prob_cell_pair_mapping[adj_key_val_cell] = adj_cell_pair.alien_probs.alien_prob
-                        adj_cell_pair.alien_probs.alien_prob = 0
-                    adj_cell_pair.alien_probs.alien_prob += prob_cell_pair_mapping[key_val_cells]/total_moves
+                    if adj_key_val_cell[1] not in self.alien_evasion_data.alien_cells_pair[adj_key_val_cell[0]]:
+                        adj_key_val_cell = (alien_moves_2, alien_moves_1)
+                        if adj_key_val_cell[0] not in self.alien_evasion_data.alien_cells_pair:
+                            continue
+                        if adj_key_val_cell[1] not in self.alien_evasion_data.alien_cells_pair[adj_key_val_cell[0]]:
+                            continue
+
+                    adj_cell_pair = self.alien_evasion_data.alien_cells_pair[adj_key_val_cell[0]][adj_key_val_cell[1]]
+                    if adj_key_val_cell[0] not in prob_cell_pair_mapping:
+                        prob_cell_pair_mapping[adj_key_val_cell[0]] = dict()
+
+                    if adj_key_val_cell[1] not in prob_cell_pair_mapping[adj_key_val_cell[0]]:
+                        prob_cell_pair_mapping[adj_key_val_cell[0]][adj_key_val_cell[1]] = cell_pair.alien_probs.alien_prob
+                        cell_pair.alien_probs.alien_prob = 0
+
+                    adj_cell_pair.alien_probs.alien_prob += prob_cell_pair_mapping[key_val_cells[0]][key_val_cells[1]]/total_moves
                     alien_cell_1 = self.ship.get_cell(alien_moves_1)
                     alien_cell_2 = self.ship.get_cell(alien_moves_2)
                     check_detetction = (alien_cell_1.within_detection_zone) or (alien_cell_1.within_detection_zone)
@@ -1769,20 +1780,14 @@ class Bot_7(Bot_4):
         prob_cell_pair_mapping.clear()
 
     def update_alien_data(self):
-        if (self.alien_evasion_data.beep_count == 0):
-            return
-
-        beep_recv = self.alien_evasion_data.is_beep_recv
-        prob_cell_list = list()
-        present_alien_cells = list()
-
-        prob_alien_in_inner_cells = ALIEN_PRESENT if beep_recv else ALIEN_NOT_PRESENT
-        prob_alien_in_outer_cells = ALIEN_PRESENT if (not beep_recv) else ALIEN_NOT_PRESENT
+        is_additive_amoothing = False
+        if not self.alien_evasion_data.beep_prob:
+            self.alien_evasion_data.beep_prob = ADDITIVE_VALUE * len(self.alien_evasion_data.alien_movement_cells)
 
         # Updating the alien prob from prior knowledge
         total_cells = len(self.alien_evasion_data.visited_cells)
         for cell_pair_key in self.alien_evasion_data.alien_movement_cells:
-            cell_pair = self.alien_evasion_data.alien_cells_pair[cell_pair_key]
+            cell_pair = self.alien_evasion_data.alien_cells_pair[cell_pair_key[0]][cell_pair_key[1]]
             cell_pair.alien_probs.alien_prob = cell_pair.alien_probs.alien_and_beep/self.alien_evasion_data.beep_prob
             for cell_cord in cell_pair.cells:
                 # dist_cell = get_manhattan_distance(self.curr_pos, cell_cord)
@@ -1796,7 +1801,7 @@ class Bot_7(Bot_4):
                 self.zone_vs_zone_prob[cell.zone_number] += ALIEN_UTILITY*prob
 
 
-        self.unsafe_cells = sorted(self.alien_evasion_data.visited_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True)[:(ALIEN_ZONE_SIZE + 1)]
+        self.unsafe_cells = sorted(self.alien_evasion_data.visited_cells, key=lambda cell:self.ship.get_cell(cell).alien_probs.alien_prob, reverse=True)[:(ALIEN_ZONE_SIZE + self.alien_config)]
         unsafe_neighbors = []
         for cell_cord in self.unsafe_cells:
             cell = self.ship.get_cell(cell_cord)
@@ -1943,7 +1948,7 @@ def run_multi_sim(data_range, is_print = False):
     processes = []
     print(f"Iterations begin...")
     core_count = cpu_count()
-    total_iters = round(TOTAL_ITERATIONS/core_count)
+    total_iters = round(core_count/core_count)
     actual_iters = total_iters * core_count
     total_data = []
     for itr in range(core_count):
