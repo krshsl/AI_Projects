@@ -12,12 +12,13 @@ TOTAL_ITERATIONS = 10000 # iterations for same ship layout and different bot/cre
 TOTAL_BOTS = 2
 GRID_SIZE = 11
 SUCCESS = 1
-FAILURE = 1
+FAILURE = 0
+CONV_ITERATIONS_LIMIT = 5000
 
 #Debugging
 RAND_CLOSED_CELLS = True
 VISUALIZE = False
-MAX_CORES = 4 # cpu_count()
+MAX_CORES = cpu_count()
 
 ALL_CREW_MOVES = [(1, 0), (0, 1), (-1, 0), (0, -1)]
 ALL_BOT_MOVES = [(1, 0), (0, 1), (1, 1), (-1, 1), (-1, 0), (0, -1), (-1, -1), (1, -1)]
@@ -41,7 +42,7 @@ class SHIP:
         self.moves_lookup = {}
         self.crew_pos = (0, 0)
         self.bot_pos = (0, 0)
-        self.expected_itr = 0
+        self.convergence_limit = 0
         self.set_grid()
         self.place_players()
 
@@ -161,7 +162,6 @@ class SHIP:
 
     def calc_no_bot_steps(self):
         total_iters = 0
-        max_allowed = 5000
         while(True):
             total_range = self.size**2
             for i in range(self.size):
@@ -182,9 +182,9 @@ class SHIP:
                         total_range -= 1
 
             total_iters += 1
-            if total_range == 0 or total_iters >= max_allowed: # stop if we have reached convergence
+            if total_range == 0 or total_iters >= CONV_ITERATIONS_LIMIT: # stop if we have reached convergence
                 # print(total_iters)
-                self.expected_itr = total_iters
+                self.convergence_limit = total_iters
                 break
 
     def calc_bot_steps(self):
@@ -248,7 +248,7 @@ class SHIP:
                                 total_range -= 1
 
                     total_iters += 1
-                    if total_range == 0 or total_iters >= self.expected_itr: # stop if we have reached convergence
+                    if total_range == 0 or total_iters >= self.convergence_limit: # stop if we have reached convergence
                         break
 
                 time_lookup[bot_pos] = moves_copy
@@ -259,19 +259,11 @@ class SHIP:
 
         self.calc_movement_lookup(time_lookup)
 
-        # for key in self.moves_lookup:
-        #     list_data = self.moves_lookup[key]
-        #     print(f"{key}::{self.get_cell(key).state}")
-        #     for inner_list in list_data:
-        #         for value in inner_list:
-        #             print(("%20s" % value), end=" ")
-        #         print()
-
     def calc_movement_lookup(self, time_lookup):
         self.moves_lookup.clear()
         state_dict = {}
 
-        for iters in range(self.expected_itr):
+        for iters in range(self.convergence_limit):
             for bot_pos in time_lookup:
                 if self.get_state(bot_pos) & CLOSED_CELL:
                     continue
@@ -391,7 +383,7 @@ class parent_bot:
                 self.visualize_grid()
                 return total_iter, SUCCESS
 
-            if total_iter > self.ship.expected_itr:
+            if total_iter > 999:
                 self.visualize_grid()
                 return total_iter, FAILURE
 
@@ -428,31 +420,6 @@ class bot(parent_bot):
     def move_bot(self):
         bot_movements = self.ship.get_all_moves(self.local_bot_pos, OPEN_CELL | TELEPORT_CELL, False)
         bot_movements.append(self.local_bot_pos)
-        # crew_neighbors = self.ship.get_all_moves(self.local_crew_pos, ~CLOSED_CELL)
-        # all_possible_moves = []
-        # for bot_move in bot_movements:
-        #     moves_list = self.ship.lookup_table[bot_move]
-        #     reward = 0.0
-
-        #     move_prob = 1/len(crew_neighbors)
-        #     for crews in crew_neighbors:
-        #         if crews == bot_move:
-        #             continue
-
-        #         crew_reward = moves_list[crews[0]][crews[1]]
-        #         if not crew_reward and crews != self.ship.teleport_cell:
-        #             print(moves_list, bot_move, crews, self.ship.get_state(crews))
-        #             self.ship.print_ship()
-
-        #         crew_reward = 2 if (crews == self.ship.teleport_cell) else 1/crew_reward
-        #         # reward += move_prob * (-0.4 + BETA*crew_reward)
-        #         for itr in range(10):
-        #             reward += (move_prob**itr)
-
-        #         reward *= crew_reward
-
-        #     all_possible_moves.append((bot_move, reward))
-
         best_move = max(bot_movements, key = lambda move:self.ship.moves_lookup[self.local_bot_pos][self.local_crew_pos][move])
         if not best_move:
             return
@@ -517,9 +484,13 @@ class DETAILS:
         self.dest_dist += new_detail.dest_dist
 
     def get_avg(self, total_itr):
-        self.s_moves /= total_itr
+        if self.success:
+            self.s_moves /= self.success
+
+        if self.failure:
+            self.f_moves /= self.failure
+
         self.success /= total_itr
-        self.f_moves /= total_itr
         self.failure /= total_itr
         self.distance /= total_itr
         self.dest_dist /= total_itr
@@ -599,7 +570,7 @@ def single_run():
 if __name__ == '__main__':
     begin = time()
     # single_run()
-    single_sim(1000)
-    # run_multi_sim()
+    # single_sim(1000)
+    run_multi_sim()
     end = time()
     print(end-begin)
