@@ -13,7 +13,7 @@ TOTAL_BOTS = 2
 GRID_SIZE = 11
 SUCCESS = 1
 FAILURE = 0
-CONV_ITERATIONS_LIMIT = 5000
+CONV_ITERATIONS_LIMIT = 1000
 
 #Debugging
 RAND_CLOSED_CELLS = True
@@ -42,7 +42,7 @@ class SHIP:
         self.moves_lookup = {}
         self.crew_pos = (0, 0)
         self.bot_pos = (0, 0)
-        self.convergence_limit = 0
+        self.convergence_iters_limit = 0
         self.set_grid()
         self.place_players()
 
@@ -182,9 +182,8 @@ class SHIP:
                         total_range -= 1
 
             total_iters += 1
-            if total_range == 0 or total_iters >= CONV_ITERATIONS_LIMIT: # stop if we have reached convergence
-                # print(total_iters)
-                self.convergence_limit = total_iters
+            if total_range == 0 or total_iters >= CONV_ITERATIONS_LIMIT:
+                self.convergence_iters_limit = total_iters
                 break
 
     def calc_bot_steps(self):
@@ -248,7 +247,7 @@ class SHIP:
                                 total_range -= 1
 
                     total_iters += 1
-                    if total_range == 0 or total_iters >= self.convergence_limit: # stop if we have reached convergence
+                    if total_range == 0 or total_iters >= self.convergence_iters_limit:
                         break
 
                 time_lookup[bot_pos] = moves_copy
@@ -263,7 +262,7 @@ class SHIP:
         self.moves_lookup.clear()
         state_dict = {}
 
-        for iters in range(self.convergence_limit):
+        for iters in range(self.convergence_iters_limit):
             for bot_pos in time_lookup:
                 if self.get_state(bot_pos) & CLOSED_CELL:
                     continue
@@ -472,8 +471,16 @@ class DETAILS:
     def __init__(self):
         self.success = self.failure = 0.0
         self.s_moves = self.f_moves = 0.0
+        self.max_success = self.min_success = 0
         self.distance = 0.0
         self.dest_dist = 0.0
+
+    def update_min_max(self, moves):
+        if self.max_success < moves:
+            self.max_success = moves
+
+        if self.min_success > moves:
+            self.min_success = moves
 
     def update(self, new_detail):
         self.s_moves += new_detail.s_moves
@@ -482,6 +489,8 @@ class DETAILS:
         self.failure += new_detail.failure
         self.distance += new_detail.distance
         self.dest_dist += new_detail.dest_dist
+        self.update_min_max(new_detail.max_success)
+        self.update_min_max(new_detail.min_success)
 
     def get_avg(self, total_itr):
         if self.success:
@@ -514,6 +523,7 @@ def run_sim(sim_range):
             moves, result = test_bot.start_rescue()
             ship.reset_grid()
             if result:
+                avg_moves[itr].update_min_max(moves)
                 avg_moves[itr].s_moves += moves
                 avg_moves[itr].success += 1
             else:
@@ -531,6 +541,14 @@ def run_sim(sim_range):
     del ship
     return avg_moves
 
+def print_header(total_itr = TOTAL_ITERATIONS):
+    print("Total iterations performed for layout is", total_itr)
+    print("%3s %18s %18s %18s %18s %18s %18s %18s %18s" % ("No", "Avg Suc Moves", "Success Rate", "Min Suc. Moves", "Max Suc. Moves", "Avg Fail Moves", "Failure Rate", "Avg Bot Crew Dist", "Crew Teleport Dist"))
+
+def print_data(final_data, itr, total_itr = TOTAL_ITERATIONS):
+    final_data[itr].get_avg(total_itr)
+    print(("%3s %18s %18s %18s %18s %18s %18s %18s %18s" % (itr, final_data[itr].s_moves, final_data[itr].success, final_data[itr].min_success, final_data[itr].max_success, final_data[itr].f_moves, final_data[itr].failure, final_data[itr].distance, final_data[itr].dest_dist)))
+
 def run_multi_sim():
     core_count = MAX_CORES
     arg_data = [range(0, TOTAL_ITERATIONS) for i in range(core_count)]
@@ -541,26 +559,25 @@ def run_multi_sim():
             for bot_no, data in enumerate(final_data):
                 curr_ship[bot_no].update(data)
 
+        print_header()
         for layout in range(core_count):
             print("Layout no. :: ", layout)
             curr_ship = avg_moves[layout]
             for itr in range(TOTAL_BOTS):
-                curr_ship[itr].get_avg(TOTAL_ITERATIONS)
-                print(("%20s %20s %20s %20s %20s %20s %20s" % (itr, curr_ship[itr].s_moves, curr_ship[itr].success, curr_ship[itr].f_moves, curr_ship[itr].failure, curr_ship[itr].distance, curr_ship[itr].dest_dist)))
+                print_data(curr_ship, itr)
 
 def single_sim(total_itr):
-    avg_moves = run_sim(range(0, total_itr))
+    final_data = run_sim(range(0, total_itr))
+
+    print_header(total_itr)
     for itr in range(TOTAL_BOTS):
-        avg_moves[itr].get_avg(total_itr)
-        print(("%3s %20s %20s %20s %20s %20s %20s" % (itr, avg_moves[itr].s_moves, avg_moves[itr].success, avg_moves[itr].f_moves, avg_moves[itr].failure, avg_moves[itr].distance, avg_moves[itr].dest_dist)))
+        print_data(final_data, itr, total_itr)
 
 def single_run():
     ship = SHIP()
     ship.calc_no_bot_steps()
     ship.calc_bot_steps()
     ship.print_ship()
-    print(ship.moves_lookup[(2, 0)][(2, 1)], max(ship.moves_lookup[(2, 0)][(2, 1)], key=lambda data:ship.moves_lookup[(2, 0)][(2, 1)][data]))
-    print(ship.moves_lookup[(1, 0)][(2, 1)], max(ship.moves_lookup[(1, 0)][(2, 1)], key=lambda data:ship.moves_lookup[(1, 0)][(2, 1)][data]))
     for itr in range(TOTAL_BOTS):
         test_bot = bot_fac(itr, ship)
         print(test_bot.start_rescue())
