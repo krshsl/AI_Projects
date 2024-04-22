@@ -14,6 +14,7 @@ GRID_SIZE = 11
 SUCCESS = 1
 FAILURE = 0
 CONV_ITERATIONS_LIMIT = 1000
+CONVERGENCE_LIMIT = 1e-5
 
 #Debugging
 RAND_CLOSED_CELLS = True
@@ -42,7 +43,7 @@ class SHIP:
         self.moves_lookup = {}
         self.crew_pos = (0, 0)
         self.bot_pos = (0, 0)
-        self.convergence_iters_limit = 0
+        self.ideal_iters_limit = 0
         self.set_grid()
         self.place_players()
 
@@ -176,14 +177,14 @@ class SHIP:
                         else:
                             curr_cell.no_bot_moves = 0
 
-                        if old_sum == curr_cell.no_bot_moves:
+                        if curr_cell.no_bot_moves - old_sum < CONVERGENCE_LIMIT:
                             total_range -= 1
                     else:
                         total_range -= 1
 
             total_iters += 1
             if total_range == 0 or total_iters >= CONV_ITERATIONS_LIMIT:
-                self.convergence_iters_limit = total_iters
+                self.ideal_iters_limit = total_iters
                 break
 
     def calc_bot_steps(self):
@@ -212,7 +213,7 @@ class SHIP:
                     espace_cells = self.get_all_moves(neighbor, ~CLOSED_CELL)
                     max_distance = 0
                     for escape in espace_cells:
-                        bot_distance = get_manhattan_distance(neighbor, escape)
+                        bot_distance = get_manhattan_distance(bot_pos, escape)
                         self.get_cell(escape).bot_distance = bot_distance
                         if max_distance < bot_distance:
                             max_distance = bot_distance
@@ -241,13 +242,13 @@ class SHIP:
                                 else:
                                     moves_copy[i][j] += 1
 
-                                if old_sum == moves_copy[i][j]:
+                                if moves_copy[i][j] - old_sum < CONVERGENCE_LIMIT:
                                     total_range -= 1
                             else:
                                 total_range -= 1
 
                     total_iters += 1
-                    if total_range == 0 or total_iters >= self.convergence_iters_limit:
+                    if (not total_range) or total_iters >= self.ideal_iters_limit:
                         break
 
                 time_lookup[bot_pos] = moves_copy
@@ -261,8 +262,9 @@ class SHIP:
     def calc_movement_lookup(self, time_lookup):
         self.moves_lookup.clear()
         state_dict = {}
-
-        for iters in range(self.convergence_iters_limit):
+        total = 0
+        for iters in range(self.ideal_iters_limit):
+            continue_iter = total
             for bot_pos in time_lookup:
                 if self.get_state(bot_pos) & CLOSED_CELL:
                     continue
@@ -338,8 +340,15 @@ class SHIP:
                                 crew_reward = -1*time_lookup[bot_action][move[0]][move[1]]
                                 curr_action_dict[bot_action] += (move_prob*(crew_reward + action_state[move]))
 
+                        old_state = curr_bot_state[crew_pos]
                         curr_bot_state[crew_pos] = -1 + curr_action_dict[max(curr_action_dict, key=lambda bot_action:curr_action_dict[bot_action])]
+                        if iters == 0:
+                            total += 1
+                        elif old_state - curr_bot_state[crew_pos] < CONVERGENCE_LIMIT:
+                            continue_iter -= 1
 
+            if iters and not continue_iter:
+                break
 
 class parent_bot:
     def __init__(self, ship):
