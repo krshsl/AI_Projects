@@ -34,7 +34,7 @@ def get_manhattan_distance(cell_1, cell_2):
 class CELL:
     def __init__(self, i, j):
         self.state = OPEN_CELL
-        self.no_bot_moves = GRID_SIZE**2
+        self.no_bot_moves = float(GRID_SIZE**2)
         pos = (i, j)
         state = j + i*GRID_SIZE
 
