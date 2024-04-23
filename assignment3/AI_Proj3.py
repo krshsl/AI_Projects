@@ -17,7 +17,7 @@ CONV_ITERATIONS_LIMIT = 1000
 CONVERGENCE_LIMIT = 1e-5
 
 #Debugging
-RAND_CLOSED_CELLS = True
+RAND_CLOSED_CELLS = 10
 VISUALIZE = False
 MAX_CORES = cpu_count()
 
@@ -40,10 +40,10 @@ class SHIP:
         self.size = GRID_SIZE
         self.grid = [[cell() for j in range(self.size)] for i in range(self.size)]
         self.open_cells = [ (j, i) for j in range(self.size) for i in range(self.size)]
-        self.moves_lookup = {}
         self.crew_pos = (0, 0)
         self.bot_pos = (0, 0)
         self.ideal_iters_limit = 0
+        self.global_min_max = -(11**4*9*4)
         self.set_grid()
         self.place_players()
 
@@ -63,7 +63,7 @@ class SHIP:
             self.place_random_closed_cells()
 
     def place_random_closed_cells(self):
-        random_closed = 10
+        random_closed = RAND_CLOSED_CELLS
         ignore_cells = [self.teleport_cell]
         for i in range(-2, 3):
             if i == 0:
@@ -87,16 +87,16 @@ class SHIP:
     def place_players(self):
         while(True):
             self.crew_pos = choice(self.open_cells)
-            if len(self.get_all_moves(self.crew_pos, ~CLOSED_CELL)) != 0:
+            if self.search_path():
                 break
 
         crew_state = TELEPORT_CELL | CREW_CELL if self.get_state(self.crew_pos) & TELEPORT_CELL else CREW_CELL
         self.set_state(self.crew_pos, crew_state)
-        # self.set_moves(self.crew_pos, 1)
         self.open_cells.remove(self.crew_pos)
+
         while(True):
             self.bot_pos = choice(self.open_cells)
-            if len(self.get_all_moves(self.bot_pos, ~CLOSED_CELL, False)) != 0:
+            if self.search_path(False):
                 break
 
         bot_state = TELEPORT_CELL | BOT_CELL if self.get_state(self.bot_pos) & TELEPORT_CELL else BOT_CELL
@@ -123,6 +123,29 @@ class SHIP:
                 print(f"{self.grid[i][j].state}", end=" ")
             print()
         print("len ::", len(self.open_cells))
+
+    def search_path(self, is_crew = True):
+        curr_pos = self.crew_pos if is_crew else self.bot_pos
+
+        bfs_queue = []
+        visited_cells = set()
+        bfs_queue.append((curr_pos, [curr_pos]))
+
+        while bfs_queue:
+            current_cell, path_traversed = bfs_queue.pop(0)
+            if current_cell == self.teleport_cell:
+                path_traversed.pop(0)
+                return path_traversed
+            elif (current_cell in visited_cells):
+                continue
+
+            visited_cells.add(current_cell)
+            neighbors = self.get_all_moves(current_cell, ~CLOSED_CELL, is_crew)
+            for neighbor in neighbors:
+                if (neighbor not in visited_cells):
+                    bfs_queue.append((neighbor, path_traversed + [neighbor]))
+
+        return [] #God forbid, this should never happen
 
     def reset_grid(self):
         for cell in self.open_cells:
@@ -161,6 +184,25 @@ class SHIP:
 
         return neighbors
 
+    def perform_initial_calcs(self):
+        # no bot
+        self.calc_no_bot_steps()
+
+        # bot - always calc no bot first, we can reuse those time steps instead of starting afresh
+        self.set_calcs_lookup()
+        self.set_state_details()
+        self.perform_moves_iteration()
+        self.perform_value_iteration()
+        self.unset_global_states()
+
+    def unset_global_states(self):
+        del self.indi_states_lookup
+        del self.time_lookup
+        del self.crew_moves
+        del self.bot_moves
+        del self.manhattan_lookup
+        del self.bot_vs_crew_state
+
     def calc_no_bot_steps(self):
         total_iters = 0
         while(True):
@@ -187,167 +229,162 @@ class SHIP:
                 self.ideal_iters_limit = total_iters
                 break
 
-    def calc_bot_steps(self):
-        moves_list = []
-        time_lookup = {}
+    def set_state_details(self):
+        self.time_lookup = []
+        self.indi_states_lookup = []
+        for level in range(2):
+            time_list = []
+            indi_list = []
+            for outer in range(self.size):
+                if level == 0:
+                    time_list.append([[self.get_cell((i, j)).no_bot_moves for j in range(self.size)] for i in range(self.size)])
+                    indi_list.append([[0.0 for j in range(self.size)] for i in range(self.size)])
+                else:
+                    time_list.append(deepcopy(self.time_lookup))
+                    indi_list.append(deepcopy(self.indi_states_lookup))
 
-        for i in range(self.size):
-            inner_list = []
-            for j in range(self.size):
-                inner_list.append(self.get_cell((i, j)).no_bot_moves)
-            moves_list.append(inner_list)
+            self.time_lookup = time_list
+            self.indi_states_lookup = indi_list
 
+    def set_calcs_lookup(self):
+        self.bot_vs_crew_state = dict()
+        self.manhattan_lookup = dict()
+        self.bot_moves = dict()
+        self.crew_moves = dict()
+        iters = 0
         for row in range(self.size):
             for col in range(self.size):
-                total_iters = 0
                 bot_pos = (row, col)
-                bot_cell = self.get_cell(bot_pos)
-                moves_copy = [list(inner_list) for inner_list in moves_list]
-                moves_copy[row][col] = 0
-                if bot_cell.state == CLOSED_CELL:
+                if self.get_state(bot_pos) == CLOSED_CELL:
                     continue
 
-                bot_adj_cells = self.get_all_moves(bot_pos, ~CLOSED_CELL)
-                for neighbor in bot_adj_cells:
-                    self.get_cell(neighbor).bot_distance = 1
-                    espace_cells = self.get_all_moves(neighbor, ~CLOSED_CELL)
-                    max_distance = 0
-                    for escape in espace_cells:
-                        bot_distance = get_manhattan_distance(bot_pos, escape)
-                        self.get_cell(escape).bot_distance = bot_distance
-                        if max_distance < bot_distance:
-                            max_distance = bot_distance
-
-                    for escape in espace_cells:
-                        if max_distance != self.get_cell(escape).bot_distance or escape == bot_pos:
-                            self.get_cell(escape).bot_distance = -1
-
-                while(True):
-                    total_range = self.size**2
-                    for i in range(self.size):
-                        for j in range(self.size):
-                            curr_cell = self.get_cell((i, j))
-                            if curr_cell.state != CLOSED_CELL and (i, j) != self.teleport_cell and (i, j) != bot_pos:
-                                neighbors = self.get_all_moves((i, j), ~CLOSED_CELL)
-                                curr_bot_distance = self.get_cell((i, j)).bot_distance
-                                if curr_bot_distance == 1:
-                                    for neighbor in list(neighbors):
-                                        if self.get_cell(neighbor).bot_distance == -1:
-                                            neighbors.remove(neighbor)
-
-                                moves_len = len(neighbors)
-                                old_sum = moves_copy[i][j]
-                                if moves_len:
-                                    moves_copy[i][j] = 1 + (sum(moves_copy[cell[0]][cell[1]] for cell in neighbors)/moves_len)
-                                else:
-                                    moves_copy[i][j] += 1
-
-                                if moves_copy[i][j] - old_sum < CONVERGENCE_LIMIT:
-                                    total_range -= 1
-                            else:
-                                total_range -= 1
-
-                    total_iters += 1
-                    if (not total_range) or total_iters >= self.ideal_iters_limit:
-                        break
-
-                time_lookup[bot_pos] = moves_copy
-                for i in range(self.size):
-                    for j in range(self.size):
-                        curr_cell = self.get_cell((i, j))
-                        curr_cell.bot_distance = 0
-
-        self.calc_movement_lookup(time_lookup)
-
-    def calc_movement_lookup(self, time_lookup):
-        self.moves_lookup.clear()
-        state_dict = {}
-        total = 0
-        for iters in range(self.ideal_iters_limit):
-            continue_iter = total
-            for bot_pos in time_lookup:
-                if self.get_state(bot_pos) & CLOSED_CELL:
-                    continue
-
-                # bot_len_pos = bot_pos[0] + bot_pos[1]*self.size
-                if bot_pos not in self.moves_lookup:
-                    self.moves_lookup[bot_pos] = {}
-
-                if bot_pos not in state_dict:
-                    state_dict[bot_pos] = {}
-
-                curr_bot_dict = self.moves_lookup[bot_pos]
-                curr_bot_state = state_dict[bot_pos]
-                curr_bot_moves = self.get_all_moves(bot_pos, ~CLOSED_CELL, False)
-                curr_bot_moves.append(bot_pos)
+                self.bot_vs_crew_state[bot_pos] = list()
+                self.manhattan_lookup[bot_pos] = dict()
+                bot_movements = self.get_all_moves(bot_pos, ~CLOSED_CELL, False)
+                bot_movements.append(bot_pos)
+                self.bot_moves[bot_pos] = bot_movements
+                crew_states = self.bot_vs_crew_state[bot_pos]
+                distances = self.manhattan_lookup[bot_pos]
                 for i in range(self.size):
                     for j in range(self.size):
                         crew_pos = (i, j)
-                        if self.get_state(crew_pos) & CLOSED_CELL or crew_pos == bot_pos:
+                        if self.get_state(crew_pos) == CLOSED_CELL or crew_pos == bot_pos:
                             continue
 
-                        if crew_pos not in curr_bot_dict:
-                            curr_bot_dict[crew_pos] = {}
+                        crew_states.append(crew_pos)
+                        distances[crew_pos] = get_manhattan_distance(crew_pos, bot_pos)
+                        if crew_pos not in self.crew_moves:
+                            self.crew_moves[crew_pos] = self.get_all_moves(crew_pos, ~CLOSED_CELL)
 
-                        if crew_pos not in curr_bot_state:
-                            curr_bot_state[crew_pos] = 0.0
+                iters += 1
 
-                        curr_action_dict = curr_bot_dict[crew_pos]
-                        for bot_action in curr_bot_moves:
-                            if bot_action == crew_pos:
+    def get_final_crew_moves(self, bot_pos, crew_pos):
+        curr_bot_distance = self.manhattan_lookup[bot_pos][crew_pos]
+        new_movements = []
+        if curr_bot_distance == 1:
+            escape_moves = []
+            max_dist = 0
+            for crew_move in self.crew_moves[crew_pos]:
+                if crew_move == bot_pos:
+                    continue
+
+                new_dist =  self.manhattan_lookup[bot_pos][crew_move]
+                escape_moves.append((crew_move, new_dist))
+                if max_dist < new_dist:
+                    max_dist = new_dist
+
+            for escape in escape_moves:
+                if escape[1] == max_dist:
+                    new_movements.append(escape[0])
+        else:
+            new_movements = list(self.crew_moves[crew_pos])
+
+        if not len(new_movements):
+            new_movements.append(crew_pos)
+
+        return new_movements
+
+    def perform_moves_iteration(self):
+        max_iters = self.ideal_iters_limit
+        max_iters = 0
+        moves_possible = {}
+        for iters in range(self.ideal_iters_limit):
+            current_iters = 0
+            for bot_pos in self.bot_vs_crew_state:
+                for crew_pos in self.bot_vs_crew_state[bot_pos]:
+                    crew_movements = self.crew_moves[crew_pos]
+                    min_max = 0
+                    for bot_action in self.bot_moves[bot_pos]:
+                        if bot_action == crew_pos:
+                            continue
+
+                        new_movements = self.get_final_crew_moves(bot_action, crew_pos)
+                        crew_move_prob = 1/len(new_movements)
+                        action_time_step = 0.0
+                        for crew_move in new_movements:
+                            if crew_move == self.teleport_cell:
                                 continue
 
-                            if bot_action not in curr_action_dict:
-                                curr_action_dict[bot_action] = 0.0
+                            action_time_step += self.time_lookup[bot_action[0]][bot_action[1]][crew_move[0]][crew_move[1]]*crew_move_prob
 
-                            if bot_action not in state_dict:
-                                state_dict[bot_action] = {}
+                        if action_time_step > min_max:
+                            min_max = action_time_step
 
-                            curr_action_dict[bot_action] = 0.0
-                            if crew_pos == self.teleport_cell:
+                    old_max = self.time_lookup[bot_pos[0]][bot_pos[1]][crew_pos[0]][crew_pos[1]]
+                    self.time_lookup[bot_pos[0]][bot_pos[1]][crew_pos[0]][crew_pos[1]] = 1 + min_max
+                    if iters == 0:
+                        max_iters += 1
+                    elif (min_max + 1) - old_max < 4.3:
+                        current_iters += 1
+
+            if current_iters == max_iters:
+                break
+
+    def perform_value_iteration(self):
+        self.best_policy_lookup = {}
+        max_iters = 0
+        for iters in range(self.ideal_iters_limit):
+            current_iters = 0
+            for bot_pos in self.bot_vs_crew_state:
+                for crew_pos in self.bot_vs_crew_state[bot_pos]:
+                    min_max = self.global_min_max
+                    action_val = ()
+                    for bot_action in self.bot_moves[bot_pos]:
+                        if bot_action == crew_pos:
+                            continue
+
+                        new_movements = self.get_final_crew_moves(bot_action, crew_pos)
+                        crew_move_prob = 1/len(new_movements)
+                        action_value = 0
+                        for crew_move in new_movements:
+                            if crew_move == self.teleport_cell:
                                 continue
 
-                            action_state = state_dict[bot_action]
-                            curr_crew_moves = self.get_all_moves(crew_pos, ~CLOSED_CELL)
-                            curr_bot_distance = get_manhattan_distance(crew_pos, bot_action)
-                            if curr_bot_distance == 1:
-                                possible_moves = []
-                                max_distance = 0
-                                # print(curr_crew_moves, bot_action, crew_pos)
-                                for crew_move in curr_crew_moves:
-                                    if crew_move == bot_action:
-                                        continue
+                            crew_reward = -1*self.time_lookup[bot_action[0]][bot_action[1]][crew_move[0]][crew_move[1]]
+                            new_state_value = self.indi_states_lookup[bot_action[0]][bot_action[1]][crew_move[0]][crew_move[1]]
+                            action_value += (crew_move_prob*(crew_reward + new_state_value))
 
-                                    distance = get_manhattan_distance(crew_move, bot_action)
-                                    possible_moves.append((crew_move, distance))
-                                    if max_distance < distance:
-                                        max_distance = distance
+                        if action_value > min_max:
+                            min_max = action_value
+                            action_val = bot_action
 
-                                curr_crew_moves.clear()
-                                # print(possible_moves, max_distance, bot_action, crew_pos)
-                                for move_vs_manhattan in possible_moves:
-                                    if max_distance == move_vs_manhattan[1]:
-                                        curr_crew_moves.append(move_vs_manhattan[0])
 
-                            if not curr_crew_moves:
-                                curr_crew_moves.append(crew_pos)
+                    old_max = self.indi_states_lookup[bot_pos[0]][bot_pos[1]][crew_pos[0]][crew_pos[1]]
+                    self.indi_states_lookup[bot_pos[0]][bot_pos[1]][crew_pos[0]][crew_pos[1]] = min_max - 1
+                    if iters == 0:
+                        max_iters += 1
+                    elif old_max - (min_max - 1) < CONVERGENCE_LIMIT:
+                        if bot_pos not in self.best_policy_lookup:
+                            self.best_policy_lookup[bot_pos] = {}
 
-                            move_prob = 1/len(curr_crew_moves)
-                            for move in curr_crew_moves:
-                                if move not in action_state:
-                                    action_state[move] = 0.0
+                        bot_policy = self.best_policy_lookup[bot_pos]
+                        if crew_pos in bot_policy:
+                            bot_policy[crew_pos] = ()
 
-                                crew_reward = -1*time_lookup[bot_action][move[0]][move[1]]
-                                curr_action_dict[bot_action] += (move_prob*(crew_reward + action_state[move]))
+                        bot_policy[crew_pos] = action_val
+                        current_iters += 1
 
-                        old_state = curr_bot_state[crew_pos]
-                        curr_bot_state[crew_pos] = -1 + curr_action_dict[max(curr_action_dict, key=lambda bot_action:curr_action_dict[bot_action])]
-                        if iters == 0:
-                            total += 1
-                        elif old_state - curr_bot_state[crew_pos] < CONVERGENCE_LIMIT:
-                            continue_iter -= 1
-
-            if iters and not continue_iter:
+            if current_iters == max_iters:
                 break
 
 class parent_bot:
@@ -391,7 +428,7 @@ class parent_bot:
                 self.visualize_grid()
                 return total_iter, SUCCESS
 
-            if total_iter > 999:
+            if total_iter > 10000:
                 self.visualize_grid()
                 return total_iter, FAILURE
 
@@ -428,7 +465,7 @@ class bot(parent_bot):
     def move_bot(self):
         bot_movements = self.ship.get_all_moves(self.local_bot_pos, OPEN_CELL | TELEPORT_CELL, False)
         bot_movements.append(self.local_bot_pos)
-        best_move = max(bot_movements, key = lambda move:self.ship.moves_lookup[self.local_bot_pos][self.local_crew_pos][move])
+        best_move = self.ship.best_policy_lookup[self.local_bot_pos][self.local_crew_pos]
         if not best_move:
             return
 
@@ -476,6 +513,7 @@ class bot(parent_bot):
         self.ship.set_state(next_cell, next_state)
         return False
 
+
 class DETAILS:
     def __init__(self):
         self.success = self.failure = 0.0
@@ -521,8 +559,7 @@ def bot_fac(itr, myship):
 
 def run_sim(sim_range):
     ship = SHIP()
-    ship.calc_no_bot_steps()
-    ship.calc_bot_steps()
+    ship.perform_initial_calcs()
     avg_moves = [DETAILS() for itr in range(TOTAL_BOTS)]
     for _ in sim_range:
         # print(_, end = "\r")
@@ -584,8 +621,7 @@ def single_sim(total_itr):
 
 def single_run():
     ship = SHIP()
-    ship.calc_no_bot_steps()
-    ship.calc_bot_steps()
+    ship.perform_initial_calcs()
     ship.print_ship()
     for itr in range(TOTAL_BOTS):
         test_bot = bot_fac(itr, ship)
