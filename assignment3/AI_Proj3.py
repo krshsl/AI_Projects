@@ -4,6 +4,7 @@ from copy import deepcopy
 from time import time
 import pandas as pd
 import csv
+import os
 
 # cell constants
 CLOSED_CELL = 0
@@ -662,26 +663,31 @@ def single_run():
         ship.reset_grid()
 
 def get_data():
-    filename = "output.csv"
-    column_headings = ["Bot_Cell","Crew_Cell"]
-    with open(filename ,'a',newline='') as csvfile:
-        writer =csv.writer(csvfile)
-        writer.writerow(column_headings)
-    ship = SHIP()
-    ship.perform_initial_calcs()
-    for _ in range(0, 2):  # Adjust the range as needed
+    for _ in range(0, 10):  # Adjust the range as needed
         itr = 1
+        ship = SHIP()
+        ship.perform_initial_calcs()
         test_bot = bot_fac(itr, ship)
-        print(test_bot.start_data_collection(filename))
+        print(test_bot.start_data_collection("output.csv"))
         ship.reset_grid()
         print("data collected for grid no:", _)
     del ship
+
+def create_file():
+    filename = "output.csv"
+    column_headings = ["Bot_Cell", "Crew_Cell"]
+    # Check if the file exists and is empty
+    if not os.path.isfile(filename) or os.stat(filename).st_size == 0:
+        with open(filename, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(column_headings)
 
 if __name__ == '__main__':
     begin = time()
     #single_run()
     # single_sim(1000)
     # run_multi_sim()
+    create_file()
     get_data()
     end = time()
     print(end-begin)
