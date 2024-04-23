@@ -3,13 +3,14 @@ from multiprocessing import Pool, cpu_count
 from copy import deepcopy
 from time import time
 
+# cell constants
 CLOSED_CELL = 0
 TELEPORT_CELL = 1
 OPEN_CELL = 2
 CREW_CELL = 4
 BOT_CELL = 8
-TOTAL_ITERATIONS = 10000 # iterations for same ship layout and different bot/crew positions
-TOTAL_BOTS = 2
+
+# layout constantss
 GRID_SIZE = 11
 SUCCESS = 1
 FAILURE = 0
@@ -18,27 +19,29 @@ CONVERGENCE_LIMIT = 1e-5
 
 #Debugging
 RAND_CLOSED_CELLS = 10
-VISUALIZE = False
+TOTAL_ITERATIONS = 10000 # iterations for same ship layout and different bot/crew positions
+TOTAL_CONFIGS = 2
 MAX_CORES = cpu_count()
+VISUALIZE = False
 
+# moves constants
 ALL_CREW_MOVES = [(1, 0), (0, 1), (-1, 0), (0, -1)]
 ALL_BOT_MOVES = [(1, 0), (0, 1), (1, 1), (-1, 1), (-1, 0), (0, -1), (-1, -1), (1, -1)]
 
 def get_manhattan_distance(cell_1, cell_2):
     return abs(cell_1[0] - cell_2[0]) + abs(cell_1[1] - cell_2[1])
 
-class cell:
-    def __init__(self):
+class CELL:
+    def __init__(self, i, j):
         self.state = OPEN_CELL
-        self.is_move = 1
-        self.bot_moves = 0.0
-        self.no_bot_moves = 0.0
-        self.bot_distance = 0
+        self.no_bot_moves = GRID_SIZE**2
+        pos = (i, j)
+        state = j + i*GRID_SIZE
 
 class SHIP:
     def __init__(self):
         self.size = GRID_SIZE
-        self.grid = [[cell() for j in range(self.size)] for i in range(self.size)]
+        self.grid = [[CELL(i, j) for j in range(self.size)] for i in range(self.size)]
         self.open_cells = [ (j, i) for j in range(self.size) for i in range(self.size)]
         self.crew_pos = (0, 0)
         self.bot_pos = (0, 0)
@@ -107,7 +110,6 @@ class SHIP:
         self.grid[pos[0]][pos[1]].state = state_val
 
     def set_moves(self, pos, moves):
-        self.grid[pos[0]][pos[1]].bot_moves = moves
         self.grid[pos[0]][pos[1]].no_bot_moves = moves
 
     def get_state(self, pos):
@@ -387,7 +389,7 @@ class SHIP:
             if current_iters == max_iters:
                 break
 
-class parent_bot:
+class PARENT_BOT:
     def __init__(self, ship):
         self.ship = ship
         self.local_crew_pos = self.ship.crew_pos
@@ -432,9 +434,9 @@ class parent_bot:
                 self.visualize_grid()
                 return total_iter, FAILURE
 
-class no_bot(parent_bot):
+class NO_BOT_CONFIG(PARENT_BOT):
     def __init__(self, ship):
-        super(no_bot, self).__init__(ship)
+        super(NO_BOT_CONFIG, self).__init__(ship)
         if self.ship.get_state(self.local_bot_pos) & TELEPORT_CELL:
             self.ship.set_state(self.local_bot_pos, TELEPORT_CELL)
         else:
@@ -458,9 +460,9 @@ class no_bot(parent_bot):
         self.ship.set_state(next_cell, next_state)
         return False
 
-class bot(parent_bot):
+class BOT_CONFIG(PARENT_BOT):
     def __init__(self, ship):
-        super(bot, self).__init__(ship)
+        super(BOT_CONFIG, self).__init__(ship)
 
     def move_bot(self):
         bot_movements = self.ship.get_all_moves(self.local_bot_pos, OPEN_CELL | TELEPORT_CELL, False)
@@ -552,19 +554,19 @@ class DETAILS:
         self.dest_dist /= total_itr
 
 def bot_fac(itr, myship):
-    if itr % TOTAL_BOTS  == 0:
-        return no_bot(myship)
+    if itr % TOTAL_CONFIGS  == 0:
+        return NO_BOT_CONFIG(myship)
     else:
-        return bot(myship)
+        return BOT_CONFIG(myship)
 
 def run_sim(sim_range):
     ship = SHIP()
     ship.perform_initial_calcs()
-    avg_moves = [DETAILS() for itr in range(TOTAL_BOTS)]
+    avg_moves = [DETAILS() for itr in range(TOTAL_CONFIGS)]
     for _ in sim_range:
         # print(_, end = "\r")
         dest_dist = get_manhattan_distance(ship.crew_pos, ship.teleport_cell)
-        for itr in range(TOTAL_BOTS):
+        for itr in range(TOTAL_CONFIGS):
             test_bot = bot_fac(itr, ship)
             moves, result = test_bot.start_rescue()
             ship.reset_grid()
@@ -576,7 +578,7 @@ def run_sim(sim_range):
                 avg_moves[itr].f_moves += moves
                 avg_moves[itr].failure += 1
 
-            distance = 0 if test_bot.__class__ is no_bot else get_manhattan_distance(ship.bot_pos, ship.crew_pos)
+            distance = 0 if test_bot.__class__ is NO_BOT_CONFIG else get_manhattan_distance(ship.bot_pos, ship.crew_pos)
             avg_moves[itr].distance += distance
             avg_moves[itr].dest_dist += dest_dist
             del test_bot
@@ -598,7 +600,7 @@ def print_data(final_data, itr, total_itr = TOTAL_ITERATIONS):
 def run_multi_sim():
     core_count = MAX_CORES
     arg_data = [range(0, TOTAL_ITERATIONS) for i in range(core_count)]
-    avg_moves = [[DETAILS() for itr in range(TOTAL_BOTS)] for _ in range(core_count)]
+    avg_moves = [[DETAILS() for itr in range(TOTAL_CONFIGS)] for _ in range(core_count)]
     with Pool(processes=core_count) as p:
         for layout, final_data in enumerate(p.map(run_sim, arg_data)):
             curr_ship = avg_moves[layout]
@@ -609,21 +611,21 @@ def run_multi_sim():
         for layout in range(core_count):
             print("Layout no. :: ", layout)
             curr_ship = avg_moves[layout]
-            for itr in range(TOTAL_BOTS):
+            for itr in range(TOTAL_CONFIGS):
                 print_data(curr_ship, itr)
 
 def single_sim(total_itr):
     final_data = run_sim(range(0, total_itr))
 
     print_header(total_itr)
-    for itr in range(TOTAL_BOTS):
+    for itr in range(TOTAL_CONFIGS):
         print_data(final_data, itr, total_itr)
 
 def single_run():
     ship = SHIP()
     ship.perform_initial_calcs()
     ship.print_ship()
-    for itr in range(TOTAL_BOTS):
+    for itr in range(TOTAL_CONFIGS):
         test_bot = bot_fac(itr, ship)
         print(test_bot.start_rescue())
         ship.reset_grid()
