@@ -2,6 +2,7 @@ from random import choice, random
 from multiprocessing import Pool, cpu_count
 from copy import deepcopy
 from time import time
+from math import ceil
 import csv
 import os
 
@@ -312,11 +313,10 @@ class SHIP:
         return new_movements
 
     def perform_moves_iteration(self):
-        max_iters = self.ideal_iters_limit
-        max_iters = 0
         moves_possible = {}
+        prev_difference = 0.0
         for iters in range(self.ideal_iters_limit):
-            current_iters = 0
+            avg_difference = 0.0
             for bot_pos in self.bot_vs_crew_state:
                 for crew_pos in self.bot_vs_crew_state[bot_pos]:
                     crew_movements = self.crew_moves[crew_pos]
@@ -339,13 +339,13 @@ class SHIP:
 
                     old_max = self.time_lookup[bot_pos[0]][bot_pos[1]][crew_pos[0]][crew_pos[1]]
                     self.time_lookup[bot_pos[0]][bot_pos[1]][crew_pos[0]][crew_pos[1]] = 1 + min_max
-                    if iters == 0:
-                        max_iters += 1
-                    elif (min_max + 1) - old_max < 4.3:
-                        current_iters += 1
+                    avg_difference += (min_max + 1) - old_max
 
-            if current_iters == max_iters:
+            convergence = prev_difference - avg_difference
+            if convergence >= 0 and convergence < CONVERGENCE_LIMIT:
                 break
+
+            prev_difference = avg_difference
 
     def perform_value_iteration(self):
         self.best_policy_lookup = {}
@@ -393,13 +393,14 @@ class SHIP:
 
             if current_iters == max_iters:
                 break
-    
+
 
 class PARENT_BOT:
     def __init__(self, ship):
         self.ship = ship
         self.local_crew_pos = self.ship.crew_pos
         self.local_bot_pos = self.ship.bot_pos
+        self.csv_data = []
 
     def move_bot(self):
         return
@@ -426,47 +427,31 @@ class PARENT_BOT:
     def start_rescue(self):
         total_iter = 0
         if self.ship.get_state(self.local_crew_pos) & TELEPORT_CELL:
+            self.csv_data.append([self.local_bot_pos, self.local_crew_pos, self.ship.closed_cells])
             return total_iter, SUCCESS
 
         while(True):
             self.visualize_grid()
             total_iter += 1
+            self.csv_data.append([self.local_bot_pos, self.local_crew_pos, self.ship.closed_cells])
+
             self.move_bot()
             if self.move_crew():
                 self.visualize_grid()
+                self.csv_data.append([self.local_bot_pos, self.local_crew_pos, self.ship.closed_cells])
                 return total_iter, SUCCESS
 
             if total_iter > 10000:
                 self.visualize_grid()
                 return total_iter, FAILURE
-    
+
     def start_data_collection(self,filename):
-        total_iter = 0
-        if self.ship.get_state(self.local_crew_pos) & TELEPORT_CELL:
-            return total_iter,SUCCESS
+        self.start_rescue()
 
-        while (True):
-            
-            self.visualize_grid()
-            total_iter += 1
-            data = [self.local_bot_pos ,self.local_crew_pos,self.ship.closed_cells]
-            print(self.local_bot_pos," ",self.local_crew_pos)
-            with open(filename,'a',newline='') as csvfile:
-                writer = csv.writer(csvfile)
+        with open(filename, 'a', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            for data in self.csv_data:
                 writer.writerow(data)
-            self.move_bot()
-            print(self.local_bot_pos)
-            if self.move_crew():
-                self.visualize_grid()
-                data = [self.local_bot_pos ,self.local_crew_pos,self.ship.closed_cells]
-                with open(filename,'a',newline='') as csvfile:
-                    writer = csv.writer(csvfile)
-                    writer.writerow(data)
-                return total_iter,SUCCESS
-
-            if total_iter > 10000:
-                self.visualize_grid()
-                return total_iter,FAILURE
 
 class NO_BOT_CONFIG(PARENT_BOT):
     def __init__(self, ship):
@@ -664,34 +649,49 @@ def single_run():
         print(test_bot.start_rescue())
         ship.reset_grid()
 
-def get_data():
-    for _ in range(0, 100):  # Adjust the range as needed
-        begin = time()
-        ship = SHIP()
-        ship.perform_initial_calcs()
-        test_bot = bot_fac(1, ship)
-        end = time()
-        print(end - begin)
-        test_bot.start_data_collection("output.csv")
-        ship.reset_grid()
-        print("data collected for grid no:", _)
-        del ship
-
-def create_file():
-    filename = "output.csv"
+def create_file(file_name):
     column_headings = ["Bot_Cell", "Crew_Cell", "Closed_Cells"]
     # Check if the file exists and is empty
-    if not os.path.isfile(filename) or os.stat(filename).st_size == 0:
-        with open(filename, 'w', newline='') as csvfile:
+    if not os.path.isfile(file_name) or os.stat(file_name).st_size == 0:
+        with open(file_name, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(column_headings)
 
+def generate_data(args):
+    file_name = args[0]
+    sim_range = args[1]
+    for _ in sim_range:
+        ship = SHIP()
+        ship.perform_initial_calcs()
+        bot_config = BOT_CONFIG(ship)
+        bot_config.start_data_collection(file_name)
+        del bot_config
+        del ship
+
+def get_data():
+    core_count = MAX_CORES
+    total_data = 100
+    thread_data = ceil(total_data/core_count)
+    arg_data = [("output_"+str(i)+".csv", range(0, thread_data)) for i in range(core_count)]
+    final_out = "output.csv"
+    create_file(final_out)
+    with open(final_out, 'a', newline='') as csvfile:
+        with Pool(processes=core_count) as p:
+            p.map(generate_data, arg_data)
+            for args in arg_data:
+                file_name = args[0]
+                with open(file_name, mode ='r') as read_file:
+                    csv_file = csv.reader(read_file)
+                    for lines in csv_file:
+                        writer = csv.writer(csvfile)
+                        writer.writerow(lines)
+                os.remove(file_name)
+
 if __name__ == '__main__':
     begin = time()
-    #single_run()
-    # single_sim(1000)
+    # single_run()
+    # single_sim(10000)
     # run_multi_sim()
-    create_file()
     get_data()
     end = time()
     print(end-begin)
