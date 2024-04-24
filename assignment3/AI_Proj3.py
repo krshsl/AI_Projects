@@ -4,13 +4,18 @@ from copy import deepcopy
 from time import time
 import csv
 import os
+import csv
+import os
 
+# cell constants
 # cell constants
 CLOSED_CELL = 0
 TELEPORT_CELL = 1
 OPEN_CELL = 2
 CREW_CELL = 4
 BOT_CELL = 8
+
+# layout constantss
 
 # layout constantss
 GRID_SIZE = 11
@@ -23,9 +28,14 @@ CONVERGENCE_LIMIT = 1e-5
 RAND_CLOSED_CELLS = 10
 TOTAL_ITERATIONS = 10000 # iterations for same ship layout and different bot/crew positions
 TOTAL_CONFIGS = 2
+RAND_CLOSED_CELLS = 10
+TOTAL_ITERATIONS = 10000 # iterations for same ship layout and different bot/crew positions
+TOTAL_CONFIGS = 2
 MAX_CORES = cpu_count()
 VISUALIZE = False
+VISUALIZE = False
 
+# moves constants
 # moves constants
 ALL_CREW_MOVES = [(1, 0), (0, 1), (-1, 0), (0, -1)]
 ALL_BOT_MOVES = [(1, 0), (0, 1), (1, 1), (-1, 1), (-1, 0), (0, -1), (-1, -1), (1, -1)]
@@ -50,6 +60,7 @@ class SHIP:
         self.ideal_iters_limit = 0
         self.global_min_max = -(11**4*9*4)
         self.closed_cells =[]
+        self.global_min_max = -(11**4*9*4)
         self.set_grid()
         self.place_players()
 
@@ -392,7 +403,7 @@ class SHIP:
 
             if current_iters == max_iters:
                 break
-
+    
 
 class PARENT_BOT:
     def __init__(self, ship):
@@ -438,14 +449,14 @@ class PARENT_BOT:
             if total_iter > 10000:
                 self.visualize_grid()
                 return total_iter, FAILURE
-
+    
     def start_data_collection(self,filename):
         total_iter = 0
         if self.ship.get_state(self.local_crew_pos) & TELEPORT_CELL:
             return total_iter,SUCCESS
 
         while (True):
-
+            
             self.visualize_grid()
             total_iter += 1
             data = [self.local_bot_pos ,self.local_crew_pos,self.ship.closed_cells]
@@ -665,7 +676,7 @@ def single_run():
 
 def get_data():
     for _ in range(0, 100):  # Adjust the range as needed
-        itr = 1
+        begin = time()
         ship = SHIP()
         ship.perform_initial_calcs()
         test_bot = bot_fac(1, ship)
@@ -678,7 +689,7 @@ def get_data():
 
 def create_file():
     filename = "output.csv"
-    column_headings = ["Bot_Cell", "Crew_Cell","Closed_Cells"]
+    column_headings = ["Bot_Cell", "Crew_Cell"]
     # Check if the file exists and is empty
     if not os.path.isfile(filename) or os.stat(filename).st_size == 0:
         with open(filename, 'w', newline='') as csvfile:
