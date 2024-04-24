@@ -49,6 +49,7 @@ class SHIP:
         self.bot_pos = (0, 0)
         self.ideal_iters_limit = 0
         self.global_min_max = -(11**4*9*4)
+        self.closed_cells =[]
         self.set_grid()
         self.place_players()
 
@@ -84,6 +85,7 @@ class SHIP:
             if random_cell not in ignore_cells:
                 random_closed -= 1
                 self.set_state(random_cell, CLOSED_CELL)
+                self.closed_cells.append(random_cell)
                 self.open_cells.remove(random_cell)
 
             if not random_closed:
@@ -446,7 +448,7 @@ class PARENT_BOT:
             
             self.visualize_grid()
             total_iter += 1
-            data = [self.local_bot_pos ,self.local_crew_pos]
+            data = [self.local_bot_pos ,self.local_crew_pos,self.ship.closed_cells]
             print(self.local_bot_pos," ",self.local_crew_pos)
             with open(filename,'a',newline='') as csvfile:
                 writer = csv.writer(csvfile)
@@ -455,7 +457,7 @@ class PARENT_BOT:
             print(self.local_bot_pos)
             if self.move_crew():
                 self.visualize_grid()
-                data = [self.local_bot_pos ,self.local_crew_pos]
+                data = [self.local_bot_pos ,self.local_crew_pos,self.ship.closed_cells]
                 with open(filename,'a',newline='') as csvfile:
                     writer = csv.writer(csvfile)
                     writer.writerow(data)
@@ -662,7 +664,7 @@ def single_run():
         ship.reset_grid()
 
 def get_data():
-    for _ in range(0, 100):  # Adjust the range as needed
+    for _ in range(100):  # Adjust the range as needed
         itr = 1
         ship = SHIP()
         ship.perform_initial_calcs()
@@ -674,7 +676,7 @@ def get_data():
 
 def create_file():
     filename = "output.csv"
-    column_headings = ["Bot_Cell", "Crew_Cell"]
+    column_headings = ["Bot_Cell", "Crew_Cell","Closed_Cells"]
     # Check if the file exists and is empty
     if not os.path.isfile(filename) or os.stat(filename).st_size == 0:
         with open(filename, 'w', newline='') as csvfile:
