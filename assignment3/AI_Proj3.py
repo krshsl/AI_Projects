@@ -2,7 +2,6 @@ from random import choice, random
 from multiprocessing import Pool, cpu_count
 from copy import deepcopy
 from time import time
-import pandas as pd
 import csv
 import os
 
@@ -391,7 +390,7 @@ class SHIP:
 
             if current_iters == max_iters:
                 break
-    
+
 
 class PARENT_BOT:
     def __init__(self, ship):
@@ -437,14 +436,14 @@ class PARENT_BOT:
             if total_iter > 10000:
                 self.visualize_grid()
                 return total_iter, FAILURE
-    
+
     def start_data_collection(self,filename):
         total_iter = 0
         if self.ship.get_state(self.local_crew_pos) & TELEPORT_CELL:
             return total_iter,SUCCESS
 
         while (True):
-            
+
             self.visualize_grid()
             total_iter += 1
             data = [self.local_bot_pos ,self.local_crew_pos]
@@ -664,14 +663,16 @@ def single_run():
 
 def get_data():
     for _ in range(0, 100):  # Adjust the range as needed
-        itr = 1
+        begin = time()
         ship = SHIP()
         ship.perform_initial_calcs()
-        test_bot = bot_fac(itr, ship)
-        print(test_bot.start_data_collection("output.csv"))
+        test_bot = bot_fac(1, ship)
+        end = time()
+        print(end - begin)
+        # print(test_bot.start_data_collection("output.csv"))
         ship.reset_grid()
         print("data collected for grid no:", _)
-    del ship
+        del ship
 
 def create_file():
     filename = "output.csv"
