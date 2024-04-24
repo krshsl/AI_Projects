@@ -663,7 +663,7 @@ def single_run():
         ship.reset_grid()
 
 def get_data():
-    for _ in range(0, 10):  # Adjust the range as needed
+    for _ in range(0, 100):  # Adjust the range as needed
         itr = 1
         ship = SHIP()
         ship.perform_initial_calcs()
