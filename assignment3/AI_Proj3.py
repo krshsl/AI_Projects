@@ -2,7 +2,6 @@ from random import choice, random
 from multiprocessing import Pool, cpu_count
 from copy import deepcopy
 from time import time
-import pandas as pd
 import csv
 import os
 
