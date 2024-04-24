@@ -4,18 +4,13 @@ from copy import deepcopy
 from time import time
 import csv
 import os
-import csv
-import os
 
-# cell constants
 # cell constants
 CLOSED_CELL = 0
 TELEPORT_CELL = 1
 OPEN_CELL = 2
 CREW_CELL = 4
 BOT_CELL = 8
-
-# layout constantss
 
 # layout constantss
 GRID_SIZE = 11
@@ -28,14 +23,9 @@ CONVERGENCE_LIMIT = 1e-5
 RAND_CLOSED_CELLS = 10
 TOTAL_ITERATIONS = 10000 # iterations for same ship layout and different bot/crew positions
 TOTAL_CONFIGS = 2
-RAND_CLOSED_CELLS = 10
-TOTAL_ITERATIONS = 10000 # iterations for same ship layout and different bot/crew positions
-TOTAL_CONFIGS = 2
 MAX_CORES = cpu_count()
 VISUALIZE = False
-VISUALIZE = False
 
-# moves constants
 # moves constants
 ALL_CREW_MOVES = [(1, 0), (0, 1), (-1, 0), (0, -1)]
 ALL_BOT_MOVES = [(1, 0), (0, 1), (1, 1), (-1, 1), (-1, 0), (0, -1), (-1, -1), (1, -1)]
@@ -60,7 +50,6 @@ class SHIP:
         self.ideal_iters_limit = 0
         self.global_min_max = -(11**4*9*4)
         self.closed_cells =[]
-        self.global_min_max = -(11**4*9*4)
         self.set_grid()
         self.place_players()
 
@@ -75,6 +64,7 @@ class SHIP:
                 self.open_cells.remove((i, j))
                 self.grid[i][j].no_bot_moves = 0
                 self.set_state((i, j), CLOSED_CELL)
+                self.closed_cells.append((i, j))
 
         if RAND_CLOSED_CELLS:
             self.place_random_closed_cells()
@@ -96,7 +86,7 @@ class SHIP:
             if random_cell not in ignore_cells:
                 random_closed -= 1
                 self.set_state(random_cell, CLOSED_CELL)
-                self.closed_cells.append(random_cell)
+                # self.closed_cells.append(random_cell)
                 self.open_cells.remove(random_cell)
 
             if not random_closed:
@@ -682,14 +672,14 @@ def get_data():
         test_bot = bot_fac(1, ship)
         end = time()
         print(end - begin)
-        # print(test_bot.start_data_collection("output.csv"))
+        test_bot.start_data_collection("output.csv")
         ship.reset_grid()
         print("data collected for grid no:", _)
         del ship
 
 def create_file():
     filename = "output.csv"
-    column_headings = ["Bot_Cell", "Crew_Cell"]
+    column_headings = ["Bot_Cell", "Crew_Cell", "Closed_Cells"]
     # Check if the file exists and is empty
     if not os.path.isfile(filename) or os.stat(filename).st_size == 0:
         with open(filename, 'w', newline='') as csvfile:
