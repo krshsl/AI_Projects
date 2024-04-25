@@ -234,7 +234,7 @@ class SHIP:
 
             total_iters += 1
             if total_range == 0 or total_iters >= CONV_ITERATIONS_LIMIT:
-                self.ideal_iters_limit = total_iters
+                self.ideal_iters_limit = 100 if total_iters < 100 else total_iters
                 break
 
     def set_state_details(self):
