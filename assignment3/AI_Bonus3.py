@@ -151,7 +151,7 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
 
             convergence = prev_difference - avg_difference
             if convergence >= 0 and convergence < AI_Proj3.CONVERGENCE_LIMIT:
-                self.ideal_iters_limit = iters**2
+                self.ideal_iters_limit = iters
                 break
 
             prev_difference = avg_difference

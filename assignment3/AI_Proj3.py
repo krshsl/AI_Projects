@@ -432,7 +432,7 @@ class PARENT_BOT:
         from matplotlib import pyplot
         if not self.init_plots:
             self.fig, self.ax = pyplot.subplots()
-            self.image = pyplot.imshow(data, cmap='autumn')
+            self.image = pyplot.imshow(data, cmap='tab20')
             self.init_plots = True
 
         self.image.set_data(data)
