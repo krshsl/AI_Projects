@@ -1,35 +1,32 @@
 from random import choice, random
-from multiprocessing import Pool, cpu_count
 from copy import deepcopy
 from time import time
-from math import ceil
 import csv
-import os
 
 # cell constants
-CLOSED_CELL = 0
-TELEPORT_CELL = 1
-OPEN_CELL = 2
-CREW_CELL = 4
-BOT_CELL = 8
+CLOSED_CELL = 1
+TELEPORT_CELL = 2
+OPEN_CELL = 4
+CREW_CELL = 8
+BOT_CELL = 16
 
 # layout constantss
 GRID_SIZE = 11
 SUCCESS = 1
 FAILURE = 0
 CONV_ITERATIONS_LIMIT = 1000
-CONVERGENCE_LIMIT = 1e-5
+CONVERGENCE_LIMIT = 1e-2 # Small value to reduce time complexity
+TOTAL_ELEMENTS = 4
 
 #Debugging
-RAND_CLOSED_CELLS = 10
-TOTAL_ITERATIONS = 10000 # iterations for same ship layout and different bot/crew positions
-TOTAL_CONFIGS = 2
-MAX_CORES = cpu_count()
+NO_CLOSED_CELLS = False
+RAND_CLOSED_CELLS = 0
 VISUALIZE = False
 
 # moves constants
 ALL_CREW_MOVES = [(1, 0), (0, 1), (-1, 0), (0, -1)]
-ALL_BOT_MOVES = [(1, 0), (0, 1), (1, 1), (-1, 1), (-1, 0), (0, -1), (-1, -1), (1, -1)]
+ALL_BOT_MOVES = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
+BEST_MOVE = "best_move"
 
 def get_manhattan_distance(cell_1, cell_2):
     return abs(cell_1[0] - cell_2[0]) + abs(cell_1[1] - cell_2[1])
@@ -49,8 +46,8 @@ class SHIP:
         self.crew_pos = (0, 0)
         self.bot_pos = (0, 0)
         self.ideal_iters_limit = 0
-        self.global_min_max = -(11**4*9*4)
-        self.closed_cells =[]
+        self.global_min_max = -(self.size**4*9*4)
+        self.closed_cells = []
         self.set_grid()
         self.place_players()
 
@@ -59,6 +56,9 @@ class SHIP:
         self.teleport_cell = (mid_point, mid_point)
         self.set_state(self.teleport_cell, TELEPORT_CELL)
         self.grid[mid_point][mid_point].no_bot_moves = 0
+        if NO_CLOSED_CELLS:
+            return
+
         other_points = [mid_point - 1, mid_point + 1]
         for i in other_points:
             for j in other_points:
@@ -195,8 +195,8 @@ class SHIP:
         self.calc_no_bot_steps()
 
         # bot - always calc no bot first, we can reuse those time steps instead of starting afresh
+        self.set_state_details(2)
         self.set_calcs_lookup()
-        self.set_state_details()
         self.perform_moves_iteration()
         self.perform_value_iteration()
         self.unset_global_states()
@@ -235,10 +235,10 @@ class SHIP:
                 self.ideal_iters_limit = 100 if total_iters < 100 else total_iters
                 break
 
-    def set_state_details(self):
+    def set_state_details(self, total_level):
         self.time_lookup = []
         self.indi_states_lookup = []
-        for level in range(2):
+        for level in range(total_level):
             time_list = []
             indi_list = []
             for outer in range(self.size):
@@ -257,7 +257,6 @@ class SHIP:
         self.manhattan_lookup = dict()
         self.bot_moves = dict()
         self.crew_moves = dict()
-        iters = 0
         for row in range(self.size):
             for col in range(self.size):
                 bot_pos = (row, col)
@@ -281,8 +280,6 @@ class SHIP:
                         distances[crew_pos] = get_manhattan_distance(crew_pos, bot_pos)
                         if crew_pos not in self.crew_moves:
                             self.crew_moves[crew_pos] = self.get_all_moves(crew_pos, ~CLOSED_CELL)
-
-                iters += 1
 
     def get_final_crew_moves(self, bot_pos, crew_pos):
         curr_bot_distance = self.manhattan_lookup[bot_pos][crew_pos]
@@ -320,16 +317,15 @@ class SHIP:
                     if crew_pos == self.teleport_cell:
                         continue
 
-                    crew_movements = self.crew_moves[crew_pos]
                     min_max = 1
                     for bot_action in self.bot_moves[bot_pos]:
                         if bot_action == crew_pos:
                             continue
 
-                        new_movements = self.get_final_crew_moves(bot_action, crew_pos)
-                        crew_move_prob = 1/len(new_movements)
+                        crew_movements = self.get_final_crew_moves(bot_action, crew_pos)
+                        crew_move_prob = 1/len(crew_movements)
                         action_time_step = 0.0
-                        for crew_move in new_movements:
+                        for crew_move in crew_movements:
                             if crew_move == self.teleport_cell:
                                 continue
 
@@ -356,12 +352,11 @@ class SHIP:
             for bot_pos in self.bot_vs_crew_state:
                 for crew_pos in self.bot_vs_crew_state[bot_pos]:
                     if crew_pos == self.teleport_cell:
-                        current_iters += 1
                         continue
 
                     min_max = self.global_min_max
                     action_val = ()
-                    all_policies = []
+                    all_policies = {}
                     for bot_action in self.bot_moves[bot_pos]:
                         if bot_action == crew_pos:
                             continue
@@ -381,8 +376,7 @@ class SHIP:
                             min_max = action_value
                             action_val = bot_action
 
-                        all_policies.append([action_value, bot_action])
-
+                        all_policies[bot_action] = action_value
 
                     old_max = self.indi_states_lookup[bot_pos[0]][bot_pos[1]][crew_pos[0]][crew_pos[1]]
                     self.indi_states_lookup[bot_pos[0]][bot_pos[1]][crew_pos[0]][crew_pos[1]] = min_max
@@ -393,10 +387,11 @@ class SHIP:
                             self.best_policy_lookup[bot_pos] = {}
 
                         bot_policy = self.best_policy_lookup[bot_pos]
-                        if crew_pos in bot_policy:
-                            bot_policy[crew_pos] = ()
+                        if crew_pos not in bot_policy:
+                            bot_policy[crew_pos] = {}
 
                         bot_policy[crew_pos] = all_policies
+                        bot_policy[crew_pos][BEST_MOVE] = action_val
                         current_iters += 1
 
             if current_iters == max_iters:
@@ -409,6 +404,10 @@ class PARENT_BOT:
         self.local_crew_pos = self.ship.crew_pos
         self.local_bot_pos = self.ship.bot_pos
         self.csv_data = None
+        self.local_all_moves = list(ALL_BOT_MOVES)
+        self.local_all_moves.insert(0, (0,0))
+        self.init_plots = False
+        self.return_state = FAILURE
 
     def move_bot(self):
         return
@@ -416,7 +415,10 @@ class PARENT_BOT:
     def move_crew(self):
         return bool(True)
 
-    def visualize_grid(self):
+    def move_alien(self):
+        return bool(False)
+
+    def visualize_grid(self, is_end = True):
         if not VISUALIZE:
             return
 
@@ -428,36 +430,62 @@ class PARENT_BOT:
 
             data.append(inner_list)
         from matplotlib import pyplot
-        fig, ax = pyplot.subplots()
-        ax.matshow(data, cmap='seismic')
-        pyplot.show()
+        if not self.init_plots:
+            self.fig, self.ax = pyplot.subplots()
+            self.image = pyplot.imshow(data, cmap='seismic')
+            self.init_plots = True
+
+        self.image.set_data(data)
+        self.fig.canvas.draw_idle()
+        pyplot.pause(.5)
+
+        if is_end:
+            pyplot.close(self.fig)
 
     def append_move(self):
         if self.csv_data is None:
             return
 
+        if self.local_crew_pos == self.ship.teleport_cell:
+            return
+
         policies = self.ship.best_policy_lookup[self.local_bot_pos][self.local_crew_pos]
         curr_layout = [[self.ship.get_state((i, j)) for j in range(self.ship.size)] for i in range(self.ship.size)]
-        for policy in policies:
-            self.csv_data.append((curr_layout, self.local_bot_pos, policy[1], policy[0]))
+        final_policy = []
+        actions = [[],[]]
+        for (row,col) in self.local_all_moves:
+            x_cord = self.local_bot_pos[0] + row
+            y_cord = self.local_bot_pos[1] + col
+            move = (x_cord, y_cord)
+            action_val = self.ship.most_min
+            if move in policies:
+                action_val = policies[move]
+
+            actions[0].append(move)
+            actions[1].append(action_val)
+
+        self.csv_data.append((curr_layout, self.local_bot_pos, actions[0], actions[1], policies[BEST_MOVE]))
 
     def start_rescue(self):
-        total_iter = 0
+        self.total_moves = 0
         if self.ship.get_state(self.local_crew_pos) & TELEPORT_CELL:
-            return total_iter, SUCCESS
+            return self.total_moves, SUCCESS
 
         while(True):
-            self.visualize_grid()
-            total_iter += 1
+            self.visualize_grid(False)
+            self.total_moves += 1
 
+            self.append_move()
             self.move_bot()
-            if self.move_crew():
+            if self.move_alien() or self.move_crew():
+                self.append_move()
                 self.visualize_grid()
-                return total_iter, SUCCESS
+                return self.total_moves, self.return_state
 
-            if total_iter > 10000:
+            if self.total_moves > 10000:
+                self.append_move()
                 self.visualize_grid()
-                return total_iter, FAILURE
+                return self.total_moves, self.return_state
 
     def start_data_collection(self,filename):
         self.csv_data = []
@@ -491,6 +519,7 @@ class NO_BOT_CONFIG(PARENT_BOT):
         if self.ship.get_state(next_cell) & TELEPORT_CELL:
             next_state |= TELEPORT_CELL
             self.ship.set_state(next_cell, next_state)
+            self.return_state = SUCCESS
             return True
 
         self.ship.set_state(next_cell, next_state)
@@ -500,26 +529,27 @@ class BOT_CONFIG(PARENT_BOT):
     def __init__(self, ship):
         super(BOT_CONFIG, self).__init__(ship)
 
-    def move_bot(self):
-        bot_movements = self.ship.get_all_moves(self.local_bot_pos, OPEN_CELL | TELEPORT_CELL, False)
-        bot_movements.append(self.local_bot_pos)
-        best_move = max(self.ship.best_policy_lookup[self.local_bot_pos][self.local_crew_pos],key= lambda data:data[0])[1]
-        if not best_move:
-            return
-
-        self.append_move()
+    def make_bot_move(self, next_pos):
         old_pos = self.local_bot_pos
         old_state = TELEPORT_CELL if self.ship.get_state(old_pos) & TELEPORT_CELL else OPEN_CELL
         self.ship.set_state(self.local_bot_pos, old_state)
-        self.local_bot_pos = best_move
+        self.local_bot_pos = next_pos
         next_state = BOT_CELL
-        if self.ship.get_state(best_move) & TELEPORT_CELL:
+        if self.ship.get_state(next_pos) & TELEPORT_CELL:
             next_state |= TELEPORT_CELL
 
-        self.ship.set_state(best_move, next_state)
+        self.ship.set_state(next_pos, next_state)
 
-    def move_crew(self):
-        neighbors = self.ship.get_all_moves(self.local_crew_pos)
+    def move_bot(self):
+        bot_movements = self.ship.get_all_moves(self.local_bot_pos, OPEN_CELL | TELEPORT_CELL, False)
+        bot_movements.append(self.local_bot_pos)
+        self.best_move = self.ship.best_policy_lookup[self.local_bot_pos][self.local_crew_pos][BEST_MOVE]
+        if not self.best_move:
+            return
+
+        self.make_bot_move(self.best_move)
+
+    def get_next_move(self, neighbors):
         if self.local_bot_pos in neighbors:
             max_distance = 0
             new_neighbors = []
@@ -538,215 +568,20 @@ class BOT_CONFIG(PARENT_BOT):
         if not neighbors:
             return False
 
-        next_cell = choice(neighbors)
+        return choice(neighbors)
 
+    def move_crew(self):
+        neighbors = self.ship.get_all_moves(self.local_crew_pos)
+        next_cell = self.get_next_move(neighbors)
         self.ship.set_state(self.local_crew_pos, OPEN_CELL)
         old_pos = self.local_crew_pos
         self.local_crew_pos = next_cell
         next_state = CREW_CELL
+        is_escaped = False
         if self.ship.get_state(next_cell) & TELEPORT_CELL:
             next_state |= TELEPORT_CELL
-            self.ship.set_state(next_cell, next_state)
-            return True
+            self.return_state = SUCCESS
+            is_escaped = True
 
         self.ship.set_state(next_cell, next_state)
-        return False
-
-
-class DETAILS:
-    def __init__(self):
-        self.success = self.failure = 0.0
-        self.s_moves = self.f_moves = 0.0
-        self.max_success = self.min_success = 0
-        self.distance = 0.0
-        self.dest_dist = 0.0
-
-    def update_min_max(self, moves):
-        if self.max_success < moves:
-            self.max_success = moves
-
-        if self.min_success > moves:
-            self.min_success = moves
-
-    def update(self, new_detail):
-        self.s_moves += new_detail.s_moves
-        self.success += new_detail.success
-        self.f_moves += new_detail.f_moves
-        self.failure += new_detail.failure
-        self.distance += new_detail.distance
-        self.dest_dist += new_detail.dest_dist
-        self.update_min_max(new_detail.max_success)
-        self.update_min_max(new_detail.min_success)
-
-    def get_avg(self, total_itr):
-        if self.success:
-            self.s_moves /= self.success
-
-        if self.failure:
-            self.f_moves /= self.failure
-
-        self.success /= total_itr
-        self.failure /= total_itr
-        self.distance /= total_itr
-        self.dest_dist /= total_itr
-
-def bot_fac(itr, myship):
-    if itr % TOTAL_CONFIGS  == 0:
-        return NO_BOT_CONFIG(myship)
-    else:
-        return BOT_CONFIG(myship)
-
-def run_sim(sim_range):
-    ship_org = SHIP()
-    ship = deepcopy(ship_org)
-    ship.perform_initial_calcs()
-    avg_moves = [DETAILS() for itr in range(TOTAL_CONFIGS)]
-    for _ in sim_range:
-        # print(_, end = "\r")
-        dest_dist = get_manhattan_distance(ship.crew_pos, ship.teleport_cell)
-        for itr in range(TOTAL_CONFIGS):
-            test_bot = bot_fac(itr, ship)
-            moves, result = test_bot.start_rescue()
-            ship.reset_grid()
-            if result:
-                avg_moves[itr].update_min_max(moves)
-                avg_moves[itr].s_moves += moves
-                avg_moves[itr].success += 1
-            else:
-                avg_moves[itr].f_moves += moves
-                avg_moves[itr].failure += 1
-
-            distance = 0 if test_bot.__class__ is NO_BOT_CONFIG else get_manhattan_distance(ship.bot_pos, ship.crew_pos)
-            avg_moves[itr].distance += distance
-            avg_moves[itr].dest_dist += dest_dist
-            del test_bot
-
-        ship.reset_positions()
-
-    # print()
-    del ship
-    return avg_moves
-
-def print_header(total_itr = TOTAL_ITERATIONS):
-    print("Total iterations performed for layout is", total_itr)
-    print("%3s %18s %18s %18s %18s %18s %18s %18s %18s" % ("No", "Avg Suc Moves", "Success Rate", "Min Suc. Moves", "Max Suc. Moves", "Avg Fail Moves", "Failure Rate", "Avg Bot Crew Dist", "Crew Teleport Dist"))
-
-def print_data(final_data, itr, total_itr = TOTAL_ITERATIONS):
-    final_data[itr].get_avg(total_itr)
-    print(("%3s %18s %18s %18s %18s %18s %18s %18s %18s" % (itr, final_data[itr].s_moves, final_data[itr].success, final_data[itr].min_success, final_data[itr].max_success, final_data[itr].f_moves, final_data[itr].failure, final_data[itr].distance, final_data[itr].dest_dist)))
-
-def run_multi_sim():
-    core_count = MAX_CORES
-    arg_data = [range(0, TOTAL_ITERATIONS) for i in range(core_count)]
-    avg_moves = [[DETAILS() for itr in range(TOTAL_CONFIGS)] for _ in range(core_count)]
-    with Pool(processes=core_count) as p:
-        for layout, final_data in enumerate(p.map(run_sim, arg_data)):
-            curr_ship = avg_moves[layout]
-            for bot_no, data in enumerate(final_data):
-                curr_ship[bot_no].update(data)
-
-        print_header()
-        for layout in range(core_count):
-            print("Layout no. :: ", layout)
-            curr_ship = avg_moves[layout]
-            for itr in range(TOTAL_CONFIGS):
-                print_data(curr_ship, itr)
-
-def single_sim(total_itr):
-    final_data = run_sim(range(0, total_itr))
-
-    print_header(total_itr)
-    for itr in range(TOTAL_CONFIGS):
-        print_data(final_data, itr, total_itr)
-
-def single_run():
-    ship = SHIP()
-    ship.perform_initial_calcs()
-    ship.print_ship()
-    for itr in range(TOTAL_CONFIGS):
-        test_bot = bot_fac(itr, ship)
-        print(test_bot.start_rescue())
-        ship.reset_grid()
-
-def create_file(file_name):
-    column_headings = ["State", "Bot_Pos", "Bot_Move", "State_Value"]
-    # Check if the file exists and is empty
-    if not os.path.isfile(file_name) or os.stat(file_name).st_size == 0:
-        with open(file_name, 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(column_headings)
-
-def generate_data(args):
-    file_name = args[0]
-    sim_range = args[1]
-    for _ in sim_range:
-        ship = SHIP()
-        ship.perform_initial_calcs()
-        bot_config = BOT_CONFIG(ship)
-        bot_config.start_data_collection(file_name)
-        del bot_config
-        del ship
-
-def get_generalized_data():
-    core_count = MAX_CORES
-    total_data = 100
-    thread_data = ceil(total_data/core_count)
-    arg_data = [("output_"+str(i)+".csv", range(0, thread_data)) for i in range(core_count)]
-    final_out = "output.csv"
-    create_file(final_out)
-    with open(final_out, 'a', newline='') as csvfile:
-        with Pool(processes=core_count) as p:
-            p.map(generate_data, arg_data)
-            for args in arg_data:
-                file_name = args[0]
-                with open(file_name, mode ='r') as read_file:
-                    csv_file = csv.reader(read_file)
-                    for lines in csv_file:
-                        writer = csv.writer(csvfile)
-                        writer.writerow(lines)
-                os.remove(file_name)
-
-def generate_same_data(args):
-    file_name = args[0]
-    sim_range = args[1]
-    ship = deepcopy(args[2])
-    for _ in sim_range:
-        bot_config = BOT_CONFIG(ship)
-        bot_config.start_data_collection(file_name)
-        del bot_config
-        ship.reset_positions()
-
-    del ship
-
-def get_single_data():
-    core_count = MAX_CORES
-    total_data = 100
-    thread_data = ceil(total_data/core_count)
-    ship = SHIP()
-    ship.perform_initial_calcs()
-    arg_data = [("single_"+str(i)+".csv", range(0, thread_data), ship) for i in range(core_count)]
-    final_out = "single.csv"
-    create_file(final_out)
-    with open(final_out, 'a', newline='') as csvfile:
-        with Pool(processes=core_count) as p:
-            p.map(generate_same_data, arg_data)
-            for args in arg_data:
-                file_name = args[0]
-                with open(file_name, mode ='r') as read_file:
-                    csv_file = csv.reader(read_file)
-                    for lines in csv_file:
-                        writer = csv.writer(csvfile)
-                        writer.writerow(lines)
-                os.remove(file_name)
-
-    del ship
-
-if __name__ == '__main__':
-    begin = time()
-    # single_run()
-    # single_sim(10000)
-    # run_multi_sim()
-    get_single_data()
-    # get_generalized_data()
-    end = time()
-    print(end-begin)
+        return is_escaped
