@@ -9,7 +9,7 @@ CAUGHT = 2
 
 class ALIEN_SHIP(AI_Proj3.SHIP):
     def __init__(self):
-        self.alien_pos = ()
+        self.alien_pos = (0, 0)
         super(ALIEN_SHIP, self).__init__()
         self.max_time_steps = self.size**6*9*4*4
         self.global_min_max = -self.size**8*9*4*4
@@ -197,7 +197,7 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
                         self.indi_states_lookup[bot_pos[0]][bot_pos[1]][alien_pos[0]][alien_pos[1]][crew_pos[0]][crew_pos[1]] = min_max
                         if iters == 0:
                             max_iters += 1
-                        elif old_max - min_max < AI_Proj3.CONVERGENCE_LIMIT:
+                        elif old_max - min_max < AI_Proj3.CONVERGENCE_LIMIT or (iters + 1) == self.ideal_iters_limit:
                             if bot_pos not in self.best_policy_lookup:
                                 self.best_policy_lookup[bot_pos] = dict()
 
@@ -214,6 +214,15 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
 
             if current_iters == max_iters:
                 break
+
+    def reset_grid(self):
+        super(ALIEN_SHIP, self).reset_grid()
+        alien_state = AI_Proj3.TELEPORT_CELL | ALIEN_CELL if self.get_state(self.crew_pos) & AI_Proj3.TELEPORT_CELL else ALIEN_CELL
+        self.set_state(self.alien_pos, alien_state)
+
+    def reset_positions(self):
+        self.open_cells.append(self.alien_pos)
+        super(ALIEN_SHIP, self).reset_positions()
 
 class ALIEN_CONFIG(AI_Proj3.BOT_CONFIG):
     def __init__(self, ship):

@@ -382,7 +382,7 @@ class SHIP:
                     self.indi_states_lookup[bot_pos[0]][bot_pos[1]][crew_pos[0]][crew_pos[1]] = min_max
                     if iters == 0:
                         max_iters += 1
-                    elif old_max - min_max < CONVERGENCE_LIMIT:
+                    elif old_max - min_max < CONVERGENCE_LIMIT or (iters + 1) == self.ideal_iters_limit:
                         if bot_pos not in self.best_policy_lookup:
                             self.best_policy_lookup[bot_pos] = {}
 

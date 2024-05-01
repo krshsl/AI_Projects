@@ -7,15 +7,16 @@ from math import ceil
 import csv
 import os
 
-AI_Proj3.GRID_SIZE = 7
-AI_Proj3.NO_CLOSED_CELLS = False
-AI_Proj3.RAND_CLOSED_CELLS = 0
-AI_Proj3.CONVERGENCE_LIMIT=0.01 # Small value to reduce time complexity
-
 TOTAL_ITERATIONS = 100 # iterations for same ship layout and different bot/crew positions
 IS_BONUS = True
 TOTAL_CONFIGS = 1 if IS_BONUS else 2
 MAX_CORES = cpu_count()
+
+AI_Proj3.GRID_SIZE = 7
+AI_Proj3.NO_CLOSED_CELLS = False
+AI_Proj3.RAND_CLOSED_CELLS = 0
+AI_Proj3.CONVERGENCE_LIMIT = 1 if IS_BONUS else 1e-3 # Small value to reduce time complexity
+
 
 class DETAILS:
     def __init__(self):
@@ -84,7 +85,8 @@ def run_sim(args):
             test_bot = bot_fac(itr, ship)
             moves, result = test_bot.start_rescue()
             ship.reset_grid()
-            if result:
+            print(result)
+            if result == 1:
                 avg_moves[itr].update_min_max(moves)
                 avg_moves[itr].s_moves += moves
                 avg_moves[itr].success += 1
