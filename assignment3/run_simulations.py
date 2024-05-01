@@ -12,7 +12,8 @@ IS_BONUS = False
 TOTAL_CONFIGS = 1 if IS_BONUS else 2
 MAX_CORES = cpu_count()
 
-AI_Proj3.GRID_SIZE = 11
+AI_Proj3.GRID_SIZE = 7
+AI_Proj3.VISUALIZE = False
 AI_Proj3.NO_CLOSED_CELLS = False
 AI_Proj3.RAND_CLOSED_CELLS = 10
 AI_Proj3.CONVERGENCE_LIMIT = 1 if IS_BONUS else 1e-3 # Small value to reduce time complexity
@@ -224,7 +225,7 @@ def get_single_data():
 if __name__ == '__main__':
     begin = time()
     # single_run()
-    single_sim(1000)
+    single_sim(TOTAL_ITERATIONS)
     # run_multi_sim()
     # get_single_data()
     # get_generalized_data()

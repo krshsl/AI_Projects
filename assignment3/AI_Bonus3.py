@@ -21,7 +21,7 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
             if self.search_path(False):
                 break
 
-        alien_state = AI_Proj3.TELEPORT_CELL | ALIEN_CELL if self.get_state(self.alien_pos) & AI_Proj3.TELEPORT_CELL else ALIEN_CELL
+        alien_state = (AI_Proj3.TELEPORT_CELL | ALIEN_CELL) if (self.alien_pos == self.teleport_cell) else ALIEN_CELL
         self.set_state(self.alien_pos, alien_state)
         self.open_cells.remove(self.alien_pos)
 
@@ -137,7 +137,7 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
                             total_move_probs = 1/total_moves
                             for alien_move in alien_movements:
                                 for crew_move in crew_movements:
-                                    if crew_move == self.teleport_cell and crew_move != alien_move:
+                                    if crew_move == self.teleport_cell:
                                         continue
 
                                     action_time_step += self.time_lookup[bot_action[0]][bot_action[1]][alien_move[0]][alien_move[1]][crew_move[0]][crew_move[1]]*total_move_probs
@@ -151,6 +151,7 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
 
             convergence = prev_difference - avg_difference
             if convergence >= 0 and convergence < AI_Proj3.CONVERGENCE_LIMIT:
+                self.ideal_iters_limit = iters**2
                 break
 
             prev_difference = avg_difference
@@ -180,7 +181,7 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
                             action_value = -1
                             for alien_move in alien_movements:
                                 for crew_move in crew_movements:
-                                    if crew_move == self.teleport_cell and crew_move != alien_move:
+                                    if crew_move == self.teleport_cell:
                                         continue
 
                                     crew_reward = self.time_lookup[bot_action[0]][bot_action[1]][alien_move[0]][alien_move[1]][crew_move[0]][crew_move[1]]
@@ -201,10 +202,11 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
                             if bot_pos not in self.best_policy_lookup:
                                 self.best_policy_lookup[bot_pos] = dict()
 
+                            alien_data = self.best_policy_lookup[bot_pos]
                             if alien_pos not in self.best_policy_lookup[bot_pos]:
-                                self.best_policy_lookup[bot_pos][alien_pos] = dict()
+                                alien_data[alien_pos] = dict()
 
-                            bot_policy = self.best_policy_lookup[bot_pos][alien_pos]
+                            bot_policy = alien_data[alien_pos]
                             if crew_pos not in bot_policy:
                                 bot_policy[crew_pos] = {}
 
@@ -217,7 +219,7 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
 
     def reset_grid(self):
         super(ALIEN_SHIP, self).reset_grid()
-        alien_state = AI_Proj3.TELEPORT_CELL | ALIEN_CELL if self.get_state(self.crew_pos) & AI_Proj3.TELEPORT_CELL else ALIEN_CELL
+        alien_state = (AI_Proj3.TELEPORT_CELL | ALIEN_CELL) if (self.alien_pos == self.teleport_cell) else ALIEN_CELL
         self.set_state(self.alien_pos, alien_state)
 
     def reset_positions(self):
@@ -239,14 +241,13 @@ class ALIEN_CONFIG(AI_Proj3.BOT_CONFIG):
         self.make_bot_move(self.best_move)
 
     def move_alien(self):
-        neighbors = self.ship.get_all_moves(self.local_alien_pos,AI_Proj3.OPEN_CELL | AI_Proj3.TELEPORT_CELL | AI_Proj3.CREW_CELL)
+        neighbors = self.ship.get_all_moves(self.local_alien_pos, AI_Proj3.OPEN_CELL | AI_Proj3.TELEPORT_CELL | AI_Proj3.CREW_CELL)
         next_cell = self.get_next_move(neighbors)
         if next_cell is None:
             return False
 
-        curr_state = AI_Proj3.TELEPORT_CELL if self.ship.get_state(self.local_alien_pos) & AI_Proj3.TELEPORT_CELL else AI_Proj3.OPEN_CELL
+        curr_state = AI_Proj3.TELEPORT_CELL if (self.local_alien_pos == self.ship.teleport_cell) else AI_Proj3.OPEN_CELL
         self.ship.set_state(self.local_alien_pos, curr_state)
-        old_pos = self.local_alien_pos
         self.local_alien_pos = next_cell
         next_cell_state = self.ship.get_state(next_cell)
         next_state = ALIEN_CELL
@@ -263,13 +264,12 @@ class ALIEN_CONFIG(AI_Proj3.BOT_CONFIG):
         return is_caught
 
     def move_crew(self):
-        neighbors = self.ship.get_all_moves(self.local_crew_pos)
+        neighbors = self.ship.get_all_moves(self.local_crew_pos, AI_Proj3.OPEN_CELL | AI_Proj3.TELEPORT_CELL | ALIEN_CELL)
         next_cell = self.get_next_move(neighbors)
         if next_cell is None:
             return False
 
-        self.ship.set_state(self.local_crew_pos, AI_Proj3.OPEN_CELL | ALIEN_CELL)
-        old_pos = self.local_crew_pos
+        self.ship.set_state(self.local_crew_pos, AI_Proj3.OPEN_CELL)
         self.local_crew_pos = next_cell
         next_cell_state = self.ship.get_state(next_cell)
         next_state = AI_Proj3.CREW_CELL

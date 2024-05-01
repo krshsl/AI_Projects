@@ -20,7 +20,7 @@ TOTAL_ELEMENTS = 4
 
 #Debugging
 NO_CLOSED_CELLS = False
-RAND_CLOSED_CELLS = 0
+RAND_CLOSED_CELLS = 10
 VISUALIZE = False
 
 # moves constants
@@ -432,7 +432,7 @@ class PARENT_BOT:
         from matplotlib import pyplot
         if not self.init_plots:
             self.fig, self.ax = pyplot.subplots()
-            self.image = pyplot.imshow(data, cmap='seismic')
+            self.image = pyplot.imshow(data, cmap='autumn')
             self.init_plots = True
 
         self.image.set_data(data)
