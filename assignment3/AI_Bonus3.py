@@ -137,7 +137,7 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
                             total_move_probs = 1/total_moves
                             for alien_move in alien_movements:
                                 for crew_move in crew_movements:
-                                    if crew_move == self.teleport_cell:
+                                    if crew_move == self.teleport_cell and crew_move != alien_move:
                                         continue
 
                                     action_time_step += self.time_lookup[bot_action[0]][bot_action[1]][alien_move[0]][alien_move[1]][crew_move[0]][crew_move[1]]*total_move_probs
@@ -180,7 +180,7 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
                             action_value = -1
                             for alien_move in alien_movements:
                                 for crew_move in crew_movements:
-                                    if crew_move == self.teleport_cell:
+                                    if crew_move == self.teleport_cell and crew_move != alien_move:
                                         continue
 
                                     crew_reward = self.time_lookup[bot_action[0]][bot_action[1]][alien_move[0]][alien_move[1]][crew_move[0]][crew_move[1]]
@@ -241,6 +241,9 @@ class ALIEN_CONFIG(AI_Proj3.BOT_CONFIG):
     def move_alien(self):
         neighbors = self.ship.get_all_moves(self.local_alien_pos,AI_Proj3.OPEN_CELL | AI_Proj3.TELEPORT_CELL | AI_Proj3.CREW_CELL)
         next_cell = self.get_next_move(neighbors)
+        if next_cell is None:
+            return False
+
         curr_state = AI_Proj3.TELEPORT_CELL if self.ship.get_state(self.local_alien_pos) & AI_Proj3.TELEPORT_CELL else AI_Proj3.OPEN_CELL
         self.ship.set_state(self.local_alien_pos, curr_state)
         old_pos = self.local_alien_pos
@@ -262,6 +265,9 @@ class ALIEN_CONFIG(AI_Proj3.BOT_CONFIG):
     def move_crew(self):
         neighbors = self.ship.get_all_moves(self.local_crew_pos)
         next_cell = self.get_next_move(neighbors)
+        if next_cell is None:
+            return False
+
         self.ship.set_state(self.local_crew_pos, AI_Proj3.OPEN_CELL | ALIEN_CELL)
         old_pos = self.local_crew_pos
         self.local_crew_pos = next_cell

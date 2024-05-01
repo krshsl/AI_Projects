@@ -566,13 +566,16 @@ class BOT_CONFIG(PARENT_BOT):
                     neighbors.append(neighbor[0])
 
         if not neighbors:
-            return False
+            return None
 
         return choice(neighbors)
 
     def move_crew(self):
         neighbors = self.ship.get_all_moves(self.local_crew_pos)
         next_cell = self.get_next_move(neighbors)
+        if next_cell is None:
+            return False
+
         self.ship.set_state(self.local_crew_pos, OPEN_CELL)
         old_pos = self.local_crew_pos
         self.local_crew_pos = next_cell

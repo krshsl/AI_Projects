@@ -8,13 +8,13 @@ import csv
 import os
 
 TOTAL_ITERATIONS = 100 # iterations for same ship layout and different bot/crew positions
-IS_BONUS = True
+IS_BONUS = False
 TOTAL_CONFIGS = 1 if IS_BONUS else 2
 MAX_CORES = cpu_count()
 
-AI_Proj3.GRID_SIZE = 7
+AI_Proj3.GRID_SIZE = 11
 AI_Proj3.NO_CLOSED_CELLS = False
-AI_Proj3.RAND_CLOSED_CELLS = 0
+AI_Proj3.RAND_CLOSED_CELLS = 10
 AI_Proj3.CONVERGENCE_LIMIT = 1 if IS_BONUS else 1e-3 # Small value to reduce time complexity
 
 
@@ -85,7 +85,6 @@ def run_sim(args):
             test_bot = bot_fac(itr, ship)
             moves, result = test_bot.start_rescue()
             ship.reset_grid()
-            print(result)
             if result == 1:
                 avg_moves[itr].update_min_max(moves)
                 avg_moves[itr].s_moves += moves
@@ -141,7 +140,7 @@ def single_sim(total_itr):
         print_data(final_data, itr, total_itr)
 
 def single_run():
-    ship = ALIEN_SHIP() if IS_BONUS else SHIP()
+    ship = AI_Bonus3.ALIEN_SHIP() if IS_BONUS else AI_Proj3.SHIP()
     ship.perform_initial_calcs()
     ship.print_ship()
     for itr in range(TOTAL_CONFIGS):
@@ -161,9 +160,9 @@ def generate_data(args):
     file_name = args[0]
     sim_range = args[1]
     for _ in sim_range:
-        ship = ALIEN_SHIP() if IS_BONUS else SHIP()
+        ship = AI_Bonus3.ALIEN_SHIP() if IS_BONUS else AI_Proj3.SHIP()
         ship.perform_initial_calcs()
-        bot_config = BOT_CONFIG(ship)
+        bot_config = AI_Bonus3.ALIEN_CONFIG(ship) if IS_BONUS else AI_Proj3.BOT_CONFIG(ship)
         bot_config.start_data_collection(file_name)
         del bot_config
         del ship
