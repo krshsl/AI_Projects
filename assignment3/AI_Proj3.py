@@ -39,26 +39,27 @@ class CELL:
         state = j + i*GRID_SIZE
 
 class SHIP:
-    def __init__(self):
+    def __init__(self, is_import = False):
         self.size = GRID_SIZE
         self.grid = [[CELL(i, j) for j in range(self.size)] for i in range(self.size)]
-        self.open_cells = [ (j, i) for j in range(self.size) for i in range(self.size)]
+        self.open_cells = [ (i, j) for j in range(self.size) for i in range(self.size)]
         self.crew_pos = (0, 0)
         self.bot_pos = (0, 0)
         self.ideal_iters_limit = 0
         self.global_min_max = -(self.size**4*9*4)
         self.closed_cells = []
-        self.set_grid()
-        self.place_players()
+        if not is_import:
+            self.set_grid()
+            self.place_players()
 
-    def set_grid(self):
+    def set_teleport(self):
         mid_point = (int)((self.size-1)/2)
         self.teleport_cell = (mid_point, mid_point)
         self.set_state(self.teleport_cell, TELEPORT_CELL)
         self.grid[mid_point][mid_point].no_bot_moves = 0
-        if NO_CLOSED_CELLS:
-            return
 
+    def set_closed(self):
+        mid_point = (int)((self.size-1)/2)
         other_points = [mid_point - 1, mid_point + 1]
         for i in other_points:
             for j in other_points:
@@ -67,6 +68,13 @@ class SHIP:
                 self.set_state((i, j), CLOSED_CELL)
                 self.closed_cells.append((i, j))
 
+
+    def set_grid(self):
+        self.set_teleport()
+        if NO_CLOSED_CELLS:
+            return
+
+        self.set_closed()
         if RAND_CLOSED_CELLS:
             self.place_random_closed_cells()
 
@@ -87,7 +95,7 @@ class SHIP:
             if random_cell not in ignore_cells:
                 random_closed -= 1
                 self.set_state(random_cell, CLOSED_CELL)
-                # self.closed_cells.append(random_cell)
+                self.closed_cells.append(random_cell)
                 self.open_cells.remove(random_cell)
 
             if not random_closed:
@@ -96,7 +104,7 @@ class SHIP:
     def place_players(self):
         while(True):
             self.crew_pos = choice(self.open_cells)
-            if self.search_path():
+            if self.crew_pos == self.teleport_cell or self.search_path(self.crew_pos):
                 break
 
         crew_state = TELEPORT_CELL | CREW_CELL if self.get_state(self.crew_pos) & TELEPORT_CELL else CREW_CELL
@@ -105,7 +113,7 @@ class SHIP:
 
         while(True):
             self.bot_pos = choice(self.open_cells)
-            if self.search_path(False):
+            if self.bot_pos == self.teleport_cell or self.search_path(self.bot_pos, False):
                 break
 
         bot_state = TELEPORT_CELL | BOT_CELL if self.get_state(self.bot_pos) & TELEPORT_CELL else BOT_CELL
@@ -132,9 +140,7 @@ class SHIP:
             print()
         print("len ::", len(self.open_cells))
 
-    def search_path(self, is_crew = True):
-        curr_pos = self.crew_pos if is_crew else self.bot_pos
-
+    def search_path(self, curr_pos, is_crew = True):
         bfs_queue = []
         visited_cells = set()
         bfs_queue.append((curr_pos, [curr_pos]))
@@ -203,7 +209,7 @@ class SHIP:
 
     def unset_global_states(self):
         del self.indi_states_lookup
-        del self.time_lookup
+        # del self.time_lookup
         del self.crew_moves
         del self.bot_moves
         del self.manhattan_lookup
@@ -263,6 +269,9 @@ class SHIP:
                 if self.get_state(bot_pos) == CLOSED_CELL:
                     continue
 
+                if bot_pos != self.teleport_cell and len(self.search_path(bot_pos, False)) == 0:
+                    continue
+
                 self.bot_vs_crew_state[bot_pos] = list()
                 self.manhattan_lookup[bot_pos] = dict()
                 bot_movements = self.get_all_moves(bot_pos, ~CLOSED_CELL, False)
@@ -274,6 +283,9 @@ class SHIP:
                     for j in range(self.size):
                         crew_pos = (i, j)
                         if self.get_state(crew_pos) == CLOSED_CELL or crew_pos == bot_pos:
+                            continue
+
+                        if crew_pos != self.teleport_cell and len(self.search_path(crew_pos)) == 0:
                             continue
 
                         crew_states.append(crew_pos)
@@ -471,9 +483,17 @@ class PARENT_BOT:
         if self.ship.get_state(self.local_crew_pos) & TELEPORT_CELL:
             return self.total_moves, SUCCESS
 
+        next_few = 0
         while(True):
             self.visualize_grid(False)
             self.total_moves += 1
+
+            if (self.total_moves % 500 == 0 or next_few) and self.ship.get_state(self.local_bot_pos) != OPEN_CELL:
+                next_few += 1
+                self.ship.print_ship()
+                print(self.ship.time_lookup[self.local_bot_pos[0]][self.local_bot_pos[1]])
+                if next_few == 5:
+                    next_few = 0
 
             self.append_move()
             self.move_bot()
@@ -482,7 +502,7 @@ class PARENT_BOT:
                 self.visualize_grid()
                 return self.total_moves, self.return_state
 
-            if self.total_moves > 10000:
+            if self.total_moves > 2000:
                 self.append_move()
                 self.visualize_grid()
                 return self.total_moves, self.return_state

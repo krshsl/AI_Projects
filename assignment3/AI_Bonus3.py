@@ -18,7 +18,7 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
         super(ALIEN_SHIP, self).place_players()
         while(True):
             self.alien_pos = choice(self.open_cells)
-            if self.search_path(False):
+            if self.alien_pos == self.teleport_cell or self.search_path(self.alien_pos):
                 break
 
         alien_state = (AI_Proj3.TELEPORT_CELL | ALIEN_CELL) if (self.alien_pos == self.teleport_cell) else ALIEN_CELL

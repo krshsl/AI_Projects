@@ -1,21 +1,37 @@
 import AI_Proj3
+import run_simulations
 from run_simulations import DETAILS
+from pandas import read_csv
+from ast import literal_eval
 import torch
 from matplotlib import pylab as plt
+from sklearn.model_selection import train_test_split
 from torch import nn
 import torch.nn.functional as F
 from time import time
 import numpy as np
+from os import path
 import random
+import csv
 
-MAX_TEST = 1000
-MAX_TRAIN = 1000
+MAX_TEST = 5000
+MAX_TRAIN = 10000
 
-AI_Proj3.GRID_SIZE = 11
-FULL_GRID_STATE = AI_Proj3.TOTAL_ELEMENTS*AI_Proj3.GRID_SIZE**2
-# FULL_GRID_STATE = AI_Proj3.GRID_SIZE**2
-H_LAYERS = [750, 1000, 750]
+AI_Proj3.GRID_SIZE = 7
+AI_Proj3.TOTAL_ELEMENTS = 4
+AI_Proj3.RAND_CLOSED_CELLS = 5
+IS_TEST_SETUP = False
+if IS_TEST_SETUP:
+    FULL_GRID_STATE = (AI_Proj3.RAND_CLOSED_CELLS + 4 + 2)
+else:
+    FULL_GRID_STATE = AI_Proj3.TOTAL_ELEMENTS*AI_Proj3.GRID_SIZE**2
+
+# H_LAYERS = [int(FULL_GRID_STATE)]
+H_LAYERS = [int(FULL_GRID_STATE*2.5), int(FULL_GRID_STATE*1.75), int(FULL_GRID_STATE*2.5)]
+# H_LAYERS = [FULL_GRID_STATE*2, int(FULL_GRID_STATE*1.5), FULL_GRID_STATE*2]
+# H_LAYERS = [FULL_GRID_STATE*2.5, int(FULL_GRID_STATE*1.75), int(FULL_GRID_STATE*1.75), FULL_GRID_STATE*2.5]
 BOT_ACTIONS = 9
+MODEL_FILE_NAME="ai_project.pt"
 
 ACTIONS_ID = {
 "IDLE" : int(0),
@@ -60,13 +76,31 @@ class QModel(nn.Module):
         return out
 
 class LEARN_CONFIG(AI_Proj3.SHIP):
-    def __init__(self):
-        super(LEARN_CONFIG, self).__init__()
+    def __init__(self, is_save_model = False, is_import = False):
+        super(LEARN_CONFIG, self).__init__(is_import)
         self.q_model = QModel(FULL_GRID_STATE, H_LAYERS, BOT_ACTIONS)
+        if is_save_model and path.exists(MODEL_FILE_NAME):
+            self.q_model = torch.load(MODEL_FILE_NAME)
+
         self.optimizer = torch.optim.Adam(self.q_model.parameters(), lr=AI_Proj3.CONVERGENCE_LIMIT)
+        # self.optimizer = torch.optim.SGD(self.q_model.parameters(), lr=AI_Proj3.CONVERGENCE_LIMIT)
         self.loss_fn = torch.nn.CrossEntropyLoss()
         self.losses = []
         self.total_failure_moves = self.total_success_moves = 0
+
+    def import_ship(self, file_name="layout.csv"):
+        with open(file_name, 'r', newline='') as csvfile:
+            reader = csv.reader(csvfile)
+            for data in reader:
+                closed_cells_str = literal_eval(str(data))
+                for cell_str in closed_cells_str:
+                    cell = literal_eval(cell_str)
+                    self.closed_cells.append(cell)
+                    self.open_cells.remove(cell)
+                    self.set_state(cell, AI_Proj3.CLOSED_CELL)
+
+        self.set_teleport()
+        self.place_players()
 
     def print_losses(self):
         # plt.figure(figsize=(10,7))
@@ -80,7 +114,7 @@ class LEARN_CONFIG(AI_Proj3.SHIP):
         self.total_failure_moves = self.total_success_moves = 0
         self.losses.clear()
 
-    def get_action(self, bot_cell, bot_move, is_parse = False):
+    def get_action(self, bot_cell, bot_move):
         val = -1
         if bot_cell and bot_move:
             delta_x = bot_move[0] - bot_cell[0]
@@ -98,52 +132,75 @@ class LEARN_CONFIG(AI_Proj3.SHIP):
                 val = ACTIONS_ID["NORTH_WEST"] if delta_y > 0 else ACTIONS_ID["SOUTH_WEST"]
         return val
 
+    def get_ship_layout(self, bot_pos, crew_pos):
+        if not IS_TEST_SETUP:
+            rows = []
+            for i in range(self.size):
+                cols = []
+                for j in range(self.size):
+                    curr_state = self.get_state((i, j))
+                    states = []
+                    states.append(-1 if curr_state == AI_Proj3.CLOSED_CELL else 0)
+                    # states.append(1 if curr_state == AI_Proj3.TELEPORT_CELL else 0)
+                    states.append(1 if (i, j) == bot_pos else 0)
+                    states.append(-1 if (i, j) == crew_pos else 0)
+                    states.append(1 if (curr_state == AI_Proj3.OPEN_CELL or curr_state == AI_Proj3.TELEPORT_CELL) else 0)
+                    cols.extend(states)
+
+                    # cols.append(curr_state if curr_state & (AI_Proj3.BOT_CELL | AI_Proj3.OPEN_CELL | AI_Proj3.CREW_CELL) else 0)
+
+                rows.extend(cols)
+
+        else:
+            bot_code = bot_pos[0]*self.size + bot_pos[1]
+            crew_code = crew_pos[0]*self.size + crew_pos[1]
+            teleport_code = self.teleport_cell[0]*self.size + self.teleport_cell[1]
+            rows = [bot_code, crew_code, teleport_code]
+            for cell in self.closed_cells:
+                closed_code = cell[0]*self.size + cell[1]
+                rows.append(closed_code)
+
+        final = (np.asarray(rows, dtype=np.float64))
+        return final
+
+    def train_model(self):
+        self.dataframe = read_csv("values.csv")
+        self.dataframe["Ship_layout"] = self.dataframe.apply(lambda row: self.get_ship_layout(literal_eval(row['Bot_Pos']), literal_eval(row['Crew_Pos'])), axis=1)
+        print(self.closed_cells)
+        print(self.dataframe)
+        input_tensor = torch.from_numpy(np.array([data for data in self.dataframe['Ship_layout']]))
+        output_tensor = torch.tensor([data for data in self.dataframe['Action']])
+        x_train, x_test, y_train, y_test = train_test_split(input_tensor, output_tensor, shuffle=True)
+        for itr in range(1000):
+            print(itr, end="\r")
+            logits = self.q_model(x_train)
+            loss = self.loss_fn(logits, y_train)
+            if (itr+1) % 1000 == 0:
+                print(x_train, y_train, logits)
+            loss.backward()
+            self.optimizer.step()
+
+        print()
+        pred_logits_test = self.q_model(x_test)
+        print("torch_sum", torch.sum( y_test == torch.argmax( pred_logits_test, dim = 1 ) ) / y_test.shape[0])
 
 class Q_BOT(AI_Proj3.BOT_CONFIG):
     def __init__(self, ship, epsilon):
         super(Q_BOT, self).__init__(ship)
         self.old_bot_pos = ()
         self.old_crew_pos = ()
-        self.state_1 = self.get_curr_state()
+        self.state_1 = self.ship.get_ship_layout(self.local_bot_pos, self.local_crew_pos)
         self.tensor_1 = torch.from_numpy(self.state_1).float()
         self.state_2 = np.array([])
         self.is_train = True
         self.epsilon = epsilon
         self.legal_moves = []
 
-    def get_curr_state(self):
-        rows = []
-        for i in range(self.ship.size):
-            cols = []
-            for j in range(self.ship.size):
-                curr_state = self.ship.get_state((i, j))
-                states = []
-                states.append(-2 if curr_state == AI_Proj3.CLOSED_CELL else 0)
-                states.append(5 if curr_state == AI_Proj3.TELEPORT_CELL else 0)
-                states.append(1 if curr_state == AI_Proj3.BOT_CELL else 0)
-                states.append(2 if curr_state == AI_Proj3.CREW_CELL else 0)
-                # states.append(1 if curr_state == AI_Proj3.OPEN_CELL else 0)
-                cols.extend(states)
-
-            rows.extend(cols)
-
-        # final = (np.asarray(rows, dtype=np.float64) + np.random.rand(1, FULL_GRID_STATE)/BOT_ACTIONS).flatten()
-        final = (np.asarray(rows, dtype=np.float64))
-        return final
-
     def make_action(self):
         move = self.local_all_moves[self.action_no]
         next_pos = (self.local_bot_pos[0] + move[0], self.local_bot_pos[1] + move[1])
         self.action_result = AI_Proj3.CLOSED_CELL
-        self.legal_moves.clear()
-        for itr, check_move in enumerate(self.local_all_moves):
-            check_pos = (self.local_bot_pos[0] + check_move[0], self.local_bot_pos[1] + check_move[1])
-            if 0 < check_pos[0] < self.ship.size and 0 < check_pos[1] < self.ship.size:
-                curr_state = self.ship.get_state(check_pos)
-                if curr_state != AI_Proj3.CLOSED_CELL and curr_state != AI_Proj3.CREW_CELL:
-                    self.legal_moves.append(itr)
 
-        # print(self.action_no, self.best_action, self.illegal_moves)
         if 0 < next_pos[0] < self.ship.size and 0 < next_pos[1] < self.ship.size:
             state = self.ship.get_state(next_pos)
             self.action_result = state
@@ -155,7 +212,7 @@ class Q_BOT(AI_Proj3.BOT_CONFIG):
     def calc_loss(self):
         bot_pos = self.local_bot_pos
         crew_pos = self.local_crew_pos
-        self.state_2 = self.get_curr_state()
+        self.state_2 = self.ship.get_ship_layout(bot_pos, crew_pos)
         self.tensor_2 = torch.from_numpy(self.state_2).float()
         with torch.no_grad():
             possibleQs = self.ship.q_model(self.tensor_2)
@@ -168,9 +225,6 @@ class Q_BOT(AI_Proj3.BOT_CONFIG):
 
         action_list = [0.0]*BOT_ACTIONS
         action_list[self.best_action] = 1.0
-        # move_prob = 0.1/(len(self.legal_moves) - 1) if (len(self.legal_moves) - 1) else 0.0
-        # for pos in self.legal_moves:
-        #     action_list[pos] = 0.9 if pos == self.best_action else move_prob
 
         if self.action_no != self.best_action:
             self.ship.total_failure_moves += 1
@@ -209,6 +263,9 @@ class Q_BOT(AI_Proj3.BOT_CONFIG):
         # self.policy_action = self.q_vals.squeeze()[self.action_no]
         self.best_move = self.ship.best_policy_lookup[self.local_bot_pos][self.local_crew_pos][AI_Proj3.BEST_MOVE]
         self.best_action = self.ship.get_action(self.local_bot_pos, self.best_move)
+        if self.total_moves % 500 == 0:
+            print(self.action_no, self.local_all_moves[self.action_no], self.best_action, self.local_all_moves[self.best_action], self.best_move)
+
         self.make_action()
 
     def move_crew(self):
@@ -229,7 +286,11 @@ class Q_BOT(AI_Proj3.BOT_CONFIG):
                 # self.visualize_grid()
                 return self.total_moves, AI_Proj3.SUCCESS
 
-            if self.total_moves > 1000:
+            # if self.total_moves % 500 == 0:
+            #     self.ship.print_ship()
+            #     print(self.ship.time_lookup[self.local_bot_pos[0]][self.local_bot_pos[1]])
+
+            if self.total_moves > 5000:
                 # self.visualize_grid()
                 return self.total_moves, AI_Proj3.FAILURE
 
@@ -270,23 +331,65 @@ def t_bot(ship, is_train = True):
     print(("%18s %18s %18s %18s %18s %18s %18s %18s" % (avg_moves.s_moves, avg_moves.success, avg_moves.min_success, avg_moves.max_success, avg_moves.f_moves, avg_moves.failure, avg_moves.distance, avg_moves.dest_dist)))
 
 def single_sim(ship):
-    final_data = AI_Proj3.run_sim([range(0, MAX_TEST), ship])
+    final_data = run_simulations.run_sim([range(0, MAX_TEST), ship])
 
-    AI_Proj3.print_header(MAX_TEST)
-    for itr in range(AI_Proj3.TOTAL_CONFIGS):
-        AI_Proj3.print_data(final_data, itr, MAX_TEST)
+    run_simulations.print_header(MAX_TEST)
+    for itr in range(run_simulations.TOTAL_CONFIGS):
+        run_simulations.print_data(final_data, itr, MAX_TEST)
 
-def single_run():
+def store_ship(ship):
+    with open("layout.csv", 'w', newline='') as csvfile:
+        layout = csv.writer(csvfile)
+        layout.writerow([cell for cell in ship.closed_cells])
+
+    with open("values.csv", 'w', newline='') as csvfile:
+        values = csv.writer(csvfile)
+        values.writerow(['Bot_Pos', 'Crew_Pos', 'Move', 'Action'])
+        for bot_pos in ship.best_policy_lookup:
+            for crew_pos in ship.best_policy_lookup[bot_pos]:
+                move = ship.best_policy_lookup[bot_pos][crew_pos][AI_Proj3.BEST_MOVE]
+                action = ship.get_action(bot_pos, move)
+                values.writerow([bot_pos, crew_pos, move, action])
+
+def test_new():
     ship = LEARN_CONFIG()
+    ship.perform_initial_calcs()
+    store_ship(ship)
+    del ship
+    ship = LEARN_CONFIG(False, True)
+    ship.import_ship()
+    ship.train_model()
+    ship.perform_initial_calcs()
+    t_bot(ship, False)
+    ship.print_losses()
+
+def single_run(is_save_model = False):
+    ship = LEARN_CONFIG(is_save_model)
     ship.perform_initial_calcs()
     t_bot(ship)
     ship.print_losses()
     t_bot(ship, False)
     ship.print_losses()
     single_sim(ship)
+    if is_save_model:
+        torch.save(ship.q_model, MODEL_FILE_NAME)
+    del ship
+
+def multi_run():
+    for i in range(10):
+        single_run(True)
+
+    for i in range(10):
+        ship = LEARN_CONFIG(True)
+        ship.perform_initial_calcs()
+        t_bot(ship, False)
+        ship.print_losses()
+        del ship
 
 if __name__ == '__main__':
     begin = time()
     single_run()
+    # multi_run()
+    # test_new()
     end = time()
     print(end-begin)

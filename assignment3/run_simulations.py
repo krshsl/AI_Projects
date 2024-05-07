@@ -7,16 +7,16 @@ from math import ceil
 import csv
 import os
 
-TOTAL_ITERATIONS = 100 # iterations for same ship layout and different bot/crew positions
+TOTAL_ITERATIONS = 1000 # iterations for same ship layout and different bot/crew positions
 IS_BONUS = False
 TOTAL_CONFIGS = 1 if IS_BONUS else 2
 MAX_CORES = cpu_count()
 
-AI_Proj3.GRID_SIZE = 11
+AI_Proj3.GRID_SIZE = 7
 AI_Proj3.VISUALIZE = False
 AI_Proj3.NO_CLOSED_CELLS = False
-AI_Proj3.RAND_CLOSED_CELLS = 10
-AI_Proj3.CONVERGENCE_LIMIT = 1 if IS_BONUS else 1e-3 # Small value to reduce time complexity
+AI_Proj3.RAND_CLOSED_CELLS = 5
+AI_Proj3.CONVERGENCE_LIMIT = 1 if IS_BONUS else 1e-4 # Small value to reduce time complexity
 
 
 class DETAILS:
