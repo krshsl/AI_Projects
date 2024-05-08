@@ -36,6 +36,7 @@ class DETAILS:
         self.max_success = self.min_success = 0
         self.distance = 0.0
         self.dest_dist = 0.0
+        self.best_cell = (-1, -1)
 
     def update_min_max(self, moves):
         if self.max_success < moves:
@@ -123,8 +124,8 @@ def print_header(total_itr = TOTAL_ITERATIONS):
     print("%3s %18s %18s %18s %18s %18s %18s %18s %18s %18s %18s" % ("No", "Avg Suc Moves", "Success Rate", "Min Suc. Moves", "Max Suc. Moves", "Avg Caught Moves", "Caught Rate", "Avg Fail Moves", "Failure Rate", "Avg Bot Crew Dist", "Crew Teleport Dist"))
 
 def print_data(final_data, itr, total_itr = TOTAL_ITERATIONS):
-    final_data[itr].get_avg(total_itr)
-    print(("%3s %18s %18s %18s %18s %18s %18s %18s %18s %18s %18s" % (itr, final_data[itr].s_moves, final_data[itr].success, final_data[itr].min_success, final_data[itr].max_success, final_data[itr].c_moves, final_data[itr].caught, final_data[itr].f_moves, final_data[itr].failure, final_data[itr].distance, final_data[itr].dest_dist)))
+    final_data.get_avg(total_itr)
+    print(("%3s %18s %18s %18s %18s %18s %18s %18s %18s %18s %18s" % (itr, final_data.s_moves, final_data.success, final_data.min_success, final_data.max_success, final_data.c_moves, final_data.caught, final_data.f_moves, final_data.failure, final_data.distance, final_data.dest_dist)))
 
 def run_multi_sim():
     core_count = MAX_CORES
@@ -141,14 +142,14 @@ def run_multi_sim():
             print("Layout no. :: ", layout)
             curr_ship = avg_moves[layout]
             for itr in range(TOTAL_CONFIGS):
-                print_data(curr_ship, itr)
+                print_data(curr_ship[itr], itr)
 
 def single_sim(total_itr):
     final_data = run_sim([range(0, total_itr)])
 
     print_header(total_itr)
     for itr in range(TOTAL_CONFIGS):
-        print_data(final_data, itr, total_itr)
+        print_data(final_data[itr], itr, total_itr)
 
 def single_run():
     ship = AI_Bonus3.ALIEN_SHIP() if IS_BONUS else AI_Proj3.SHIP()
@@ -260,16 +261,55 @@ def get_single_data():
 
     del ship
 
-def test_different_positions():
-    AI_Proj3.MY_BOT_CONFIG
+def test_multiple_bot_pos():
+    print_header()
+    ship = AI_Proj3.SHIP()
+    ship.perform_initial_calcs()
+    all_open = list(ship.open_cells)
+    all_open.append(ship.bot_pos)
+    all_open.append(ship.crew_pos)
+    best_details = DETAILS()
+    best_details.s_moves = 500
+    for cell in all_open:
+        if not (cell == ship.teleport_cell or ship.search_path(cell)):
+            continue
+
+        ship.reset_static_pos(cell)
+        avg_moves = DETAILS()
+        for itr in range(TOTAL_ITERATIONS):
+            bot = AI_Proj3.BOT_CONFIG(ship)
+            moves, result = bot.start_rescue()
+            if result:
+                avg_moves.update_min_max(moves)
+                avg_moves.s_moves += moves
+                avg_moves.success += 1
+            else:
+                avg_moves.f_moves += moves
+                avg_moves.failure += 1
+
+            avg_moves.distance += AI_Proj3.get_manhattan_distance(ship.bot_pos, ship.crew_pos)
+            avg_moves.dest_dist += AI_Proj3.get_manhattan_distance(ship.crew_pos, ship.teleport_cell)
+            ship.reset_static_pos(cell)
+        print(f"Data for crew pos::{cell}")
+        print_data(avg_moves, 1)
+        if best_details.s_moves > avg_moves.s_moves:
+            best_details = avg_moves
+            best_details.best_cell = cell
+        
+    print(f"Most optimal crew cell for current ship::{best_details.best_cell}")
+    print_data(best_details, 1, 1)
+    ship.reset_static_pos(best_details.best_cell)
+    print("Ship Layout")
+    ship.print_ship()
+
 
 if __name__ == '__main__':
     begin = time()
-    # test_different_positions()
+    test_multiple_bot_pos()
     # single_run()
     # single_sim(TOTAL_ITERATIONS)
     # run_multi_sim()
-    get_single_data()
+    # get_single_data()
     # get_generalized_data()
     end = time()
     print(end-begin)
