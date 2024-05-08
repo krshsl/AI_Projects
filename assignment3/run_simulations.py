@@ -19,11 +19,13 @@ AI_Proj3.NO_CLOSED_CELLS = False
 AI_Proj3.RAND_CLOSED_CELLS = 10
 AI_Proj3.CONVERGENCE_LIMIT = 1 if IS_BONUS else 1e-4 # Small value to reduce time complexity
 
-GENERALIZED_FOLDER="general"
+GENERALIZED_FOLDER="general_bonus" if IS_BONUS else "general"
+SINGLE_FOLDER="single_bonus" if IS_BONUS else "single"
 GENERALIZED_DATA="general.csv"
-SINGLE_FOLDER="single"
 SINGLE_DATA="single.csv"
 LAYOUT_DATA="layout.csv"
+DATA_COLS=["Bot_Pos", "Crew_Pos", "Alien_Pos"] if IS_BONUS else ["Bot_Pos", "Crew_Pos"]
+LAYOUT_COLS=["Closed_Cells", "Wall_Cells"]
 SINGLE_MOVES=1000
 GENERALIZED_SHIPS=80
 
@@ -192,8 +194,8 @@ def get_generalized_data():
             general_layout = os.path.join(GENERALIZED_FOLDER, str(count) + "_" + LAYOUT_DATA)
             inner_data.append(general_file)
             inner_data.append(general_layout)
-            create_file(general_file, ["Bot_Pos", "Crew_Pos"])
-            create_file(general_layout, ["Closed_Cells", "Walled_Cells"])
+            create_file(general_file, DATA_COLS)
+            create_file(general_layout, LAYOUT_COLS)
             per_thread_data.append(inner_data)
             count += 1
         arg_data.append(per_thread_data)
@@ -206,14 +208,14 @@ def generate_same_data(args):
     ship = deepcopy(args[1])
     for _ in range(ceil(SINGLE_MOVES/MAX_CORES)):
         bot_config = AI_Bonus3.ALIEN_CONFIG(ship) if IS_BONUS else AI_Proj3.BOT_CONFIG(ship)
-        bot_config.start_data_collection(file_name)
+        print(bot_config.start_data_collection(file_name))
         del bot_config
         ship.reset_positions()
 
     del ship
 
 def write_ship_layout(ship, file_name):
-    create_file(file_name, ["Closed_Cells", "Wall_Cells"])
+    create_file(file_name, LAYOUT_COLS)
     total_closed = []
     closed = []
     for cell in ship.closed_cells:
@@ -240,7 +242,7 @@ def get_single_data():
     ship.perform_initial_calcs()
     arg_data = [["output_"+str(i)+".csv", ship] for i in range(MAX_CORES)]
     single_file = os.path.join(SINGLE_FOLDER, SINGLE_DATA)
-    create_file(single_file, ["Bot_Pos", "Crew_Pos"])
+    create_file(single_file, DATA_COLS)
     layout_file = os.path.join(SINGLE_FOLDER, LAYOUT_DATA)
     write_ship_layout(ship, layout_file)
 
@@ -258,12 +260,16 @@ def get_single_data():
 
     del ship
 
+def test_different_positions():
+    AI_Proj3.MY_BOT_CONFIG
+
 if __name__ == '__main__':
     begin = time()
+    # test_different_positions()
     # single_run()
     # single_sim(TOTAL_ITERATIONS)
     # run_multi_sim()
     get_single_data()
-    get_generalized_data()
+    # get_generalized_data()
     end = time()
     print(end-begin)

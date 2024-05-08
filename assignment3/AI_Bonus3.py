@@ -231,6 +231,12 @@ class ALIEN_CONFIG(AI_Proj3.BOT_CONFIG):
         super(ALIEN_CONFIG, self).__init__(ship)
         self.local_alien_pos = self.ship.alien_pos
 
+    def append_move(self):
+        if self.csv_data is None:
+            return
+
+        self.csv_data.append([self.local_bot_pos, self.local_crew_pos, self.local_alien_pos])
+
     def move_bot(self):
         bot_movements = self.ship.get_all_moves(self.local_bot_pos, AI_Proj3.OPEN_CELL | AI_Proj3.TELEPORT_CELL, False)
         bot_movements.append(self.local_bot_pos)
@@ -252,9 +258,9 @@ class ALIEN_CONFIG(AI_Proj3.BOT_CONFIG):
         next_cell_state = self.ship.get_state(next_cell)
         next_state = ALIEN_CELL
         is_caught = False
-        if next_cell_state & AI_Proj3.TELEPORT_CELL:
+        if self.local_alien_pos == self.ship.teleport_cell:
             next_state |= AI_Proj3.TELEPORT_CELL
-        elif next_cell_state & AI_Proj3.CREW_CELL:
+        elif self.local_crew_pos == self.local_alien_pos:
             next_state |= AI_Proj3.CREW_CELL
             self.ship.set_state(next_cell, next_state)
             self.return_state = CAUGHT
@@ -273,15 +279,16 @@ class ALIEN_CONFIG(AI_Proj3.BOT_CONFIG):
         self.local_crew_pos = next_cell
         next_cell_state = self.ship.get_state(next_cell)
         next_state = AI_Proj3.CREW_CELL
-        is_over = False
-        if next_cell_state & AI_Proj3.TELEPORT_CELL:
-            next_state |= AI_Proj3.TELEPORT_CELL
-            self.return_state = AI_Proj3.SUCCESS
-            is_over = True
-        elif next_cell_state & ALIEN_CELL:
+        is_fin = False
+        if self.local_crew_pos == self.local_alien_pos:
             next_state |= ALIEN_CELL
             self.return_state = CAUGHT
-            is_over = True
+            is_fin = True
+        elif self.local_crew_pos == self.ship.teleport_cell:
+            next_state |= AI_Proj3.TELEPORT_CELL
+            self.return_state = AI_Proj3.SUCCESS
+            is_fin = True
 
         self.ship.set_state(next_cell, next_state)
-        return is_over
+        return is_fin
+
