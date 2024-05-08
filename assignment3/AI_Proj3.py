@@ -42,7 +42,7 @@ class SHIP:
     def __init__(self, is_import = False):
         self.size = GRID_SIZE
         self.grid = [[CELL(i, j) for j in range(self.size)] for i in range(self.size)]
-        self.open_cells = [ (i, j) for j in range(self.size) for i in range(self.size)]
+        self.open_cells = [ (j, i) for j in range(self.size) for i in range(self.size)]
         self.crew_pos = (0, 0)
         self.bot_pos = (0, 0)
         self.ideal_iters_limit = 0
@@ -136,7 +136,7 @@ class SHIP:
         for i in range(self.size):
             for j in range(self.size):
                 # print(("%20s " %self.grid[i][j].no_bot_moves), end=" ")
-                print(f"{self.grid[i][j].state}", end=" ")
+                print("%3s" % self.grid[i][j].state, end=" ")
             print()
         print("len ::", len(self.open_cells))
 
@@ -408,7 +408,29 @@ class SHIP:
 
             if current_iters == max_iters:
                 break
+    
+    def reset_static_pos(self, bot_pos):
+        self.open_cells.append(self.bot_pos)
+        self.open_cells.append(self.crew_pos)
+        for cell in self.open_cells:
+            self.set_state(cell, OPEN_CELL)
+        
+        self.set_state(self.teleport_cell, TELEPORT_CELL)
 
+        self.bot_pos = bot_pos
+        bot_state = TELEPORT_CELL | BOT_CELL if self.bot_pos == self.teleport_cell else BOT_CELL
+        self.set_state(self.bot_pos, bot_state)
+        self.open_cells.remove(self.bot_pos)
+
+        while(True):
+            self.crew_pos = choice(self.open_cells)
+            if self.crew_pos == self.teleport_cell or self.search_path(self.crew_pos):
+                break
+
+        crew_state = TELEPORT_CELL | CREW_CELL if self.crew_pos == self.teleport_cell else CREW_CELL
+        self.set_state(self.crew_pos, crew_state)
+        self.open_cells.remove(self.crew_pos)
+        
 
 class PARENT_BOT:
     def __init__(self, ship):
@@ -492,6 +514,7 @@ class PARENT_BOT:
                 writer.writerow(data)
 
         del self.csv_data
+        return self.total_moves, self.return_state
 
 class NO_BOT_CONFIG(PARENT_BOT):
     def __init__(self, ship):
@@ -511,14 +534,14 @@ class NO_BOT_CONFIG(PARENT_BOT):
         old_pos = self.local_crew_pos
         self.local_crew_pos = next_cell
         next_state = CREW_CELL
-        if self.ship.get_state(next_cell) & TELEPORT_CELL:
+        is_escaped = False
+        if self.local_crew_pos == self.ship.teleport_cell:
             next_state |= TELEPORT_CELL
-            self.ship.set_state(next_cell, next_state)
             self.return_state = SUCCESS
-            return True
+            is_escaped = True
 
         self.ship.set_state(next_cell, next_state)
-        return False
+        return is_escaped
 
 class BOT_CONFIG(PARENT_BOT):
     def __init__(self, ship):
@@ -576,7 +599,7 @@ class BOT_CONFIG(PARENT_BOT):
         self.local_crew_pos = next_cell
         next_state = CREW_CELL
         is_escaped = False
-        if self.ship.get_state(next_cell) & TELEPORT_CELL:
+        if self.local_crew_pos == self.ship.teleport_cell:
             next_state |= TELEPORT_CELL
             self.return_state = SUCCESS
             is_escaped = True
