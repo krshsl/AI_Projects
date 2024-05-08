@@ -48,7 +48,7 @@ class SHIP:
         self.ideal_iters_limit = 0
         self.global_min_max = -(self.size**4*9*4)
         self.closed_cells = []
-        self.walls = []
+        self.wall_cells = []
         if not is_import:
             self.set_grid()
             self.place_players()
@@ -93,10 +93,9 @@ class SHIP:
         while(True):
             random_cell = choice(self.open_cells)
             if random_cell not in ignore_cells:
-                self.walls.append(random_cell)
+                self.wall_cells.append(random_cell)
                 random_closed -= 1
                 self.set_state(random_cell, CLOSED_CELL)
-                self.closed_cells.append(random_cell)
                 self.open_cells.remove(random_cell)
 
             if not random_closed:
