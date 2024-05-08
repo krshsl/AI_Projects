@@ -432,7 +432,7 @@ class PARENT_BOT:
         return bool(False)
 
     def visualize_grid(self, is_end = True):
-        if (not VISUALIZE) and (not self.ship.get_state(self.local_bot_pos) & BOT_CELL):
+        if (not VISUALIZE) or (VISUALIZE and (not (self.ship.get_state(self.local_bot_pos) & BOT_CELL))):
             return
 
         data = []
