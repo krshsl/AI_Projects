@@ -6,18 +6,26 @@ from time import time
 from math import ceil
 import csv
 import os
+import shutil
 
 TOTAL_ITERATIONS = 1000 # iterations for same ship layout and different bot/crew positions
 IS_BONUS = False
 TOTAL_CONFIGS = 1 if IS_BONUS else 2
 MAX_CORES = cpu_count()
 
-AI_Proj3.GRID_SIZE = 7
+AI_Proj3.GRID_SIZE = 11
 AI_Proj3.VISUALIZE = False
 AI_Proj3.NO_CLOSED_CELLS = False
-AI_Proj3.RAND_CLOSED_CELLS = 5
+AI_Proj3.RAND_CLOSED_CELLS = 10
 AI_Proj3.CONVERGENCE_LIMIT = 1 if IS_BONUS else 1e-4 # Small value to reduce time complexity
 
+GENERALIZED_FOLDER="general"
+GENERALIZED_DATA="general.csv"
+SINGLE_FOLDER="single"
+SINGLE_DATA="single.csv"
+LAYOUT_DATA="layout.csv"
+SINGLE_MOVES=1000
+GENERALIZED_SHIPS=80
 
 class DETAILS:
     def __init__(self):
@@ -149,67 +157,95 @@ def single_run():
         print(test_bot.start_rescue())
         ship.reset_grid()
 
-def create_file(file_name):
-    column_headings = ["State", "Bot_Pos", "Bot_Moves", "State_Values", "Best_Move"]
-    # Check if the file exists and is empty
-    if not os.path.isfile(file_name) or os.stat(file_name).st_size == 0:
-        with open(file_name, 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(column_headings)
+def create_file(file_name, headings):
+    with open(file_name, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(headings)
+    
+    return file_name
 
-def generate_data(args):
-    file_name = args[0]
-    sim_range = args[1]
-    for _ in sim_range:
+def generate_data(args_list):
+    for args in args_list:
+        file_name = args[0]
+        layout_file = args[1]
         ship = AI_Bonus3.ALIEN_SHIP() if IS_BONUS else AI_Proj3.SHIP()
         ship.perform_initial_calcs()
-        bot_config = AI_Bonus3.ALIEN_CONFIG(ship) if IS_BONUS else AI_Proj3.BOT_CONFIG(ship)
-        bot_config.start_data_collection(file_name)
-        del bot_config
+        write_ship_layout(ship, layout_file)
+        for _ in range(ceil(SINGLE_MOVES/MAX_CORES)):
+            bot_config = AI_Bonus3.ALIEN_CONFIG(ship) if IS_BONUS else AI_Proj3.BOT_CONFIG(ship)
+            bot_config.start_data_collection(file_name)
+            del bot_config
+            ship.reset_positions()
         del ship
 
 def get_generalized_data():
-    core_count = MAX_CORES
-    total_data = 100
-    thread_data = ceil(total_data/core_count)
-    arg_data = [("output_"+str(i)+".csv", range(0, thread_data)) for i in range(core_count)]
-    final_out = "output.csv"
-    create_file(final_out)
-    with open(final_out, 'a', newline='') as csvfile:
-        with Pool(processes=core_count) as p:
-            p.map(generate_data, arg_data)
-            for args in arg_data:
-                file_name = args[0]
-                with open(file_name, mode ='r') as read_file:
-                    csv_file = csv.reader(read_file)
-                    for lines in csv_file:
-                        writer = csv.writer(csvfile)
-                        writer.writerow(lines)
-                os.remove(file_name)
+    print("get_generalized_data...")
+    create_folder(GENERALIZED_FOLDER)
+    arg_data = []
+    ship_per_thread = ceil(GENERALIZED_SHIPS/MAX_CORES)
+    count = 0
+    for t in range(MAX_CORES):
+        per_thread_data = []
+        for i in range(ship_per_thread):
+            inner_data = []
+            general_file = os.path.join(GENERALIZED_FOLDER, str(count) + "_" + GENERALIZED_DATA)
+            general_layout = os.path.join(GENERALIZED_FOLDER, str(count) + "_" + LAYOUT_DATA)
+            inner_data.append(general_file)
+            inner_data.append(general_layout)
+            create_file(general_file, ["Bot_Pos", "Crew_Pos"])
+            create_file(general_layout, ["Closed_Cells", "Walled_Cells"])
+            per_thread_data.append(inner_data)
+            count += 1
+        arg_data.append(per_thread_data)
+        
+    with Pool(processes=MAX_CORES) as p:
+        p.map(generate_data, arg_data)
 
 def generate_same_data(args):
     file_name = args[0]
-    sim_range = args[1]
-    ship = deepcopy(args[2])
-    for _ in sim_range:
-        bot_config = AI_Proj3.BOT_CONFIG(ship)
+    ship = deepcopy(args[1])
+    for _ in range(ceil(SINGLE_MOVES/MAX_CORES)):
+        bot_config = AI_Bonus3.ALIEN_CONFIG(ship) if IS_BONUS else AI_Proj3.BOT_CONFIG(ship)
         bot_config.start_data_collection(file_name)
         del bot_config
         ship.reset_positions()
 
     del ship
 
+def write_ship_layout(ship, file_name):
+    create_file(file_name, ["Closed_Cells", "Wall_Cells"])
+    total_closed = []
+    closed = []
+    for cell in ship.closed_cells:
+        closed.append(cell)
+    total_closed.append(closed)
+    closed = []
+    for cell in ship.wall_cells:
+        closed.append(cell)
+    total_closed.append(closed)
+    with open(file_name, 'a', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(total_closed)
+
+def create_folder(folder):
+    if os.path.exists(folder):
+        shutil.rmtree(folder)
+
+    os.makedirs(folder)
+
 def get_single_data():
-    core_count = MAX_CORES
-    total_data = 10000
-    thread_data = ceil(total_data/core_count)
+    print("get_single_data...")
+    create_folder(SINGLE_FOLDER)
     ship = AI_Bonus3.ALIEN_SHIP() if IS_BONUS else AI_Proj3.SHIP()
     ship.perform_initial_calcs()
-    arg_data = [("single_"+str(i)+".csv", range(0, thread_data), ship) for i in range(core_count)]
-    final_out = "single.csv"
-    create_file(final_out)
-    with open(final_out, 'a', newline='') as csvfile:
-        with Pool(processes=core_count) as p:
+    arg_data = [["output_"+str(i)+".csv", ship] for i in range(MAX_CORES)]
+    single_file = os.path.join(SINGLE_FOLDER, SINGLE_DATA)
+    create_file(single_file, ["Bot_Pos", "Crew_Pos"])
+    layout_file = os.path.join(SINGLE_FOLDER, LAYOUT_DATA)
+    write_ship_layout(ship, layout_file)
+
+    with open(single_file, 'a', newline='') as csvfile:
+        with Pool(processes=MAX_CORES) as p:
             p.map(generate_same_data, arg_data)
             for args in arg_data:
                 file_name = args[0]
@@ -225,9 +261,9 @@ def get_single_data():
 if __name__ == '__main__':
     begin = time()
     # single_run()
-    single_sim(TOTAL_ITERATIONS)
+    # single_sim(TOTAL_ITERATIONS)
     # run_multi_sim()
-    # get_single_data()
-    # get_generalized_data()
+    get_single_data()
+    get_generalized_data()
     end = time()
     print(end-begin)

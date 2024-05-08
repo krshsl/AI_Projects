@@ -459,25 +459,7 @@ class PARENT_BOT:
         if self.csv_data is None:
             return
 
-        if self.local_crew_pos == self.ship.teleport_cell:
-            return
-
-        policies = self.ship.best_policy_lookup[self.local_bot_pos][self.local_crew_pos]
-        curr_layout = [[self.ship.get_state((i, j)) for j in range(self.ship.size)] for i in range(self.ship.size)]
-        final_policy = []
-        actions = [[],[]]
-        for (row,col) in self.local_all_moves:
-            x_cord = self.local_bot_pos[0] + row
-            y_cord = self.local_bot_pos[1] + col
-            move = (x_cord, y_cord)
-            action_val = self.ship.most_min
-            if move in policies:
-                action_val = policies[move]
-
-            actions[0].append(move)
-            actions[1].append(action_val)
-
-        self.csv_data.append((curr_layout, self.local_bot_pos, actions[0], actions[1], policies[BEST_MOVE]))
+        self.csv_data.append([self.local_bot_pos, self.local_crew_pos])
 
     def start_rescue(self):
         self.total_moves = 0
