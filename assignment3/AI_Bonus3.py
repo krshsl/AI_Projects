@@ -8,9 +8,9 @@ ALIEN_CELL = 32
 CAUGHT = 2
 
 class ALIEN_SHIP(AI_Proj3.SHIP):
-    def __init__(self):
+    def __init__(self, is_import = False):
         self.alien_pos = (0, 0)
-        super(ALIEN_SHIP, self).__init__()
+        super(ALIEN_SHIP, self).__init__(is_import)
         self.max_time_steps = self.size**6*9*4*4
         self.global_min_max = -self.size**8*9*4*4
 

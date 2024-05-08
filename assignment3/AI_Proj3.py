@@ -68,7 +68,6 @@ class SHIP:
                 self.set_state((i, j), CLOSED_CELL)
                 self.closed_cells.append((i, j))
 
-
     def set_grid(self):
         self.set_teleport()
         if NO_CLOSED_CELLS:
@@ -420,6 +419,7 @@ class PARENT_BOT:
         self.local_all_moves.insert(0, (0,0))
         self.init_plots = False
         self.return_state = FAILURE
+        self.best_move = (-1, -1)
 
     def move_bot(self):
         return
@@ -431,7 +431,7 @@ class PARENT_BOT:
         return bool(False)
 
     def visualize_grid(self, is_end = True):
-        if not VISUALIZE:
+        if (not VISUALIZE) and (not self.ship.get_state(self.local_bot_pos) & BOT_CELL):
             return
 
         data = []
@@ -483,17 +483,9 @@ class PARENT_BOT:
         if self.ship.get_state(self.local_crew_pos) & TELEPORT_CELL:
             return self.total_moves, SUCCESS
 
-        next_few = 0
         while(True):
             self.visualize_grid(False)
             self.total_moves += 1
-
-            if (self.total_moves % 500 == 0 or next_few) and self.ship.get_state(self.local_bot_pos) != OPEN_CELL:
-                next_few += 1
-                self.ship.print_ship()
-                print(self.ship.time_lookup[self.local_bot_pos[0]][self.local_bot_pos[1]])
-                if next_few == 5:
-                    next_few = 0
 
             self.append_move()
             self.move_bot()
@@ -502,7 +494,7 @@ class PARENT_BOT:
                 self.visualize_grid()
                 return self.total_moves, self.return_state
 
-            if self.total_moves > 2000:
+            if self.total_moves > 1000:
                 self.append_move()
                 self.visualize_grid()
                 return self.total_moves, self.return_state
