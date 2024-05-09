@@ -26,7 +26,7 @@ SINGLE_DATA="single.csv"
 LAYOUT_DATA="layout.csv"
 DATA_COLS=["Bot_Pos", "Crew_Pos", "Alien_Pos"] if IS_BONUS else ["Bot_Pos", "Crew_Pos"]
 LAYOUT_COLS=["Closed_Cells", "Wall_Cells"]
-SINGLE_MOVES=10000
+SINGLE_MOVES=1000
 GENERALIZED_SHIPS=400
 
 BOT_NAME_LOOKUP = {

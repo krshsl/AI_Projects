@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 
-is_bonus = False
+is_bonus = True
 is_general = False
 
 # Define the folder path
