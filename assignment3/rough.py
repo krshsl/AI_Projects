@@ -98,21 +98,18 @@ def parse_angles(row):
     return getAngle(bot_cell, crew_cell)
 
 def process_data():
-    path = "general/final_data.csv" if is_general else 'single/final_data.csv' 
+    path = "alien_final_data.csv"  
     df = pd.read_csv(path)
-    # Extract x, y, p, and q values from the existing columns
     df['bot_x'] = df['Bot_Pos'].apply(lambda x: int(x.split(',')[0].strip('()')))
     df['bot_y'] = df['Bot_Pos'].apply(lambda x: int(x.split(',')[1].strip('()')))
     df['crew_x'] = df['Crew_Pos'].apply(lambda x: int(x.split(',')[0].strip('()')))
     df['crew_y'] = df['Crew_Pos'].apply(lambda x: int(x.split(',')[1].strip('()')))
-
-# Calculate the distance
+    df['alien_x'] = df['Alien_Pos'].apply(lambda x: int(x.split(',')[0].strip('()')))
+    df['alien_y'] = df['Alien_Pos'].apply(lambda x: int(x.split(',')[1].strip('()')))
     df['Distance_from_bot_to_crew'] = abs(df['bot_x'] - df['crew_x']) + abs(df['bot_y'] - df['crew_y'])
-    # df['Distance_from_bot_to_teleport'] = abs(df['bot_x'] - 5) + abs(df['bot_y'] - 5)
-    # df['Distance_from_crew_to_teleport'] = abs(5 - df['crew_x']) + abs(5 - df['crew_y'])
+    df['Distance_from_alien_to_crew'] = abs(df['alien_x'] - df['crew_x']) + abs(df['alien_y'] - df['crew_y'])
 
-#Drop the intermediate columns x, y, p, and q if needed
-    df.drop(['crew_x', 'crew_y', 'bot_x', 'bot_y'], axis=1, inplace=True)
+    df.drop(['crew_x', 'crew_y', 'bot_x', 'bot_y','alien_x','alien_y'], axis=1, inplace=True)
     df['Bot_Move'] = df['Bot_Pos'].shift(-1)
     df['Bot_Move'] = df.apply(lambda row: clean_Bot_Move(row, df), axis=1)
     df =df.dropna()
@@ -121,6 +118,7 @@ def process_data():
     df["Bot_Cell_Encoded"] = df.apply(lambda row: map_coordinates_to_integer(row,"Bot_Pos"), axis=1)
     df["Crew_Cell_Encoded"] = df.apply(lambda row: map_coordinates_to_integer(row,"Crew_Pos"), axis=1)
     df["Bot_Move_Encoded"] = df.apply(lambda row: map_coordinates_to_integer(row,"Bot_Move"), axis=1)
+    df["Alien_Pos_Encoded"] = df.apply(lambda row: map_coordinates_to_integer(row,"Alien_Pos"), axis=1)
 
     df['Closed_Cells_Encoded'] = df['Closed_Cells'].apply(encode_list_of_tuples)
     df['Closed_Cells_Encoded'] = closed_cells_encoder.fit_transform(df['Closed_Cells_Encoded'])
@@ -132,12 +130,11 @@ def process_data():
     
     label_encoded_df = label_encoded_df.drop('Bot_Pos',axis =1)
     label_encoded_df = label_encoded_df.drop('Crew_Pos',axis =1)
+    label_encoded_df = label_encoded_df.drop('Alien_Pos',axis =1)
     label_encoded_df = label_encoded_df.drop('Bot_Move',axis =1)
     label_encoded_df = label_encoded_df.drop('Closed_Cells',axis =1)
     label_encoded_df = label_encoded_df.drop('Wall_Cells',axis =1)
-    # label_encoded_df = label_encoded_df.drop("Distance_from_bot_to_teleport",axis=1)
-    # label_encoded_df = label_encoded_df.drop("Distance_from_crew_to_teleport",axis=1)
-    # label_encoded_df = label_encoded_df.drop("Direction_of_Bot",axis=1)
+
 
 
     return label_encoded_df
@@ -172,7 +169,9 @@ def create_model():
     data  = process_data()
     X_train, X_test, y_train, y_test = train_data(data)
     y_test, y_pred, X_train,model = Decision_Tree_Regressor(X_train, X_test, y_train, y_test)
-    print(X_train)
+    predictions = model.predict(X_test)
+    accuracy = accuracy_score(y_test, predictions)
+    print(accuracy)
     return model
 
 def predict_model(model,input):
@@ -226,15 +225,18 @@ class LEARN_BOT(AI_Proj3.BOT_CONFIG):
     
     def move_bot(self):
         bot_pos = self.local_bot_pos
+        alien_pos = self.alien_pos
         #print("bot_pos",bot_pos)
         crew_pos = self.local_crew_pos
         crew_pos_encoded = crew_pos[0] * self.ship.size + crew_pos[1] + 1
         bot_pos_encoded = bot_pos[0] * self.ship.size + bot_pos[1] + 1
+        alien_pos_encoded = alien_pos[0] * self.ship.size + alien_pos[1] + 1
         distance = AI_Proj3.get_manhattan_distance(bot_pos, crew_pos)
+        distance = AI_Proj3.get_manhattan_distance(alien_pos,crew_pos)
         #print("bot",bot_pos_encoded)
         #print("crew",crew_pos_encoded)
         
-        X_input = [[distance, bot_pos_encoded, crew_pos_encoded, self.ship.closed_encoded[0], self.ship.walls_encoded[0]]]
+        X_input = [[distance, bot_pos_encoded, crew_pos_encoded, self.ship.closed_encoded[0], self.ship.walls_encoded[0]],alien_pos_encoded]
         op = predict_model(self.ship.model, X_input)
         #print("OP",op)
         bot_x = (op - 1) % 11
@@ -252,6 +254,7 @@ class LEARN_BOT(AI_Proj3.BOT_CONFIG):
                         #print(next_pos)
                         self.make_bot_move(next_pos)
                         return
+
         else:
             print("fail")
 
