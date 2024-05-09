@@ -13,10 +13,10 @@ IS_BONUS = False
 TOTAL_CONFIGS = 1 if IS_BONUS else 2
 MAX_CORES = cpu_count()
 
-AI_Proj3.GRID_SIZE = 11
+AI_Proj3.GRID_SIZE = 5
 AI_Proj3.VISUALIZE = False
 AI_Proj3.NO_CLOSED_CELLS = False
-AI_Proj3.RAND_CLOSED_CELLS = 10
+AI_Proj3.RAND_CLOSED_CELLS = 1
 AI_Proj3.CONVERGENCE_LIMIT = 1 if IS_BONUS else 1e-4 # Small value to reduce time complexity
 
 GENERALIZED_FOLDER="general_bonus" if IS_BONUS else "general"
@@ -164,7 +164,7 @@ def create_file(file_name, headings):
     with open(file_name, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(headings)
-    
+
     return file_name
 
 def generate_data(args_list):
@@ -200,7 +200,7 @@ def get_generalized_data():
             per_thread_data.append(inner_data)
             count += 1
         arg_data.append(per_thread_data)
-        
+
     with Pool(processes=MAX_CORES) as p:
         p.map(generate_data, arg_data)
 
@@ -209,7 +209,7 @@ def generate_same_data(args):
     ship = deepcopy(args[1])
     for _ in range(ceil(SINGLE_MOVES/MAX_CORES)):
         bot_config = AI_Bonus3.ALIEN_CONFIG(ship) if IS_BONUS else AI_Proj3.BOT_CONFIG(ship)
-        print(bot_config.start_data_collection(file_name))
+        bot_config.start_data_collection(file_name)
         del bot_config
         ship.reset_positions()
 
@@ -263,7 +263,7 @@ def get_single_data():
 
 def test_multiple_bot_pos():
     print_header()
-    ship = AI_Proj3.SHIP()
+    ship = AI_Bonus3.ALIEN_SHIP() if IS_BONUS else AI_Proj3.SHIP()
     ship.perform_initial_calcs()
     all_open = list(ship.open_cells)
     all_open.append(ship.bot_pos)
@@ -277,12 +277,15 @@ def test_multiple_bot_pos():
         ship.reset_static_pos(cell)
         avg_moves = DETAILS()
         for itr in range(TOTAL_ITERATIONS):
-            bot = AI_Proj3.BOT_CONFIG(ship)
+            bot = AI_Bonus3.ALIEN_CONFIG(ship) if IS_BONUS else AI_Proj3.BOT_CONFIG(ship)
             moves, result = bot.start_rescue()
-            if result:
+            if result == 1:
                 avg_moves.update_min_max(moves)
                 avg_moves.s_moves += moves
                 avg_moves.success += 1
+            elif result == 2:
+                avg_moves.c_moves += moves
+                avg_moves.caught += 1
             else:
                 avg_moves.f_moves += moves
                 avg_moves.failure += 1
@@ -295,7 +298,7 @@ def test_multiple_bot_pos():
         if best_details.s_moves > avg_moves.s_moves:
             best_details = avg_moves
             best_details.best_cell = cell
-        
+
     print(f"Most optimal crew cell for current ship::{best_details.best_cell}")
     print_data(best_details, 1, 1)
     ship.reset_static_pos(best_details.best_cell)
@@ -306,10 +309,10 @@ def test_multiple_bot_pos():
 if __name__ == '__main__':
     begin = time()
     test_multiple_bot_pos()
-    # single_run()
-    # single_sim(TOTAL_ITERATIONS)
-    # run_multi_sim()
-    # get_single_data()
-    # get_generalized_data()
+    single_run()
+    single_sim(TOTAL_ITERATIONS)
+    run_multi_sim()
+    get_single_data()
+    get_generalized_data()
     end = time()
     print(end-begin)

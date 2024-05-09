@@ -18,22 +18,24 @@ import csv
 
 MAX_TRAIN = 1000
 MAX_TEST = 1000
-MAX_PROCESS=int(cpu_count()/2)
+MAX_PROCESS = int(cpu_count()/2)
 GENERAL_TRAIN = int(96/MAX_PROCESS)
 GENERAL_TEST = int(108/MAX_PROCESS)
 
-AI_Proj3.GRID_SIZE = 5
+AI_Proj3.GRID_SIZE = 7
 AI_Proj3.TOTAL_ELEMENTS = 5
-AI_Proj3.RAND_CLOSED_CELLS = 0
+AI_Proj3.RAND_CLOSED_CELLS = 5
+AI_Proj3.CONVERGENCE_LIMIT = 1
 FULL_GRID_STATE = AI_Proj3.TOTAL_ELEMENTS*AI_Proj3.GRID_SIZE**2
 LEARNING_RATE=1e-2
 
-H_LAYERS = [int(FULL_GRID_STATE*2), int(FULL_GRID_STATE*1.5), int(FULL_GRID_STATE*2)]
+H_LAYERS = [int(FULL_GRID_STATE*2.5), int(FULL_GRID_STATE*1.75), int(FULL_GRID_STATE*2.5)]
 BOT_ACTIONS = 9
-MODEL_FILE_NAME="ai_project_bonus.pt"
+AI_Proj3.VISUALIZE = True
 
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 IS_DEBUG = False
+run_simulations.IS_BONUS = True
+run_simulations.TOTAL_CONFIGS = 1
 
 ACTIONS_ID = {
 "IDLE" : int(0),
@@ -83,7 +85,6 @@ class LEARN_CONFIG(AI_Bonus3.ALIEN_SHIP):
         self.q_model = model_data
         self.optimizer = torch.optim.Adam(self.q_model.parameters(), lr=LEARNING_RATE)
         self.loss_fn = torch.nn.CrossEntropyLoss()
-        self.loss_fn = self.loss_fn.to(torch.device(DEVICE))
         self.losses = []
         self.total_failure_moves = self.total_success_moves = 0
 
@@ -138,11 +139,11 @@ class LEARN_CONFIG(AI_Bonus3.ALIEN_SHIP):
             for j in range(self.size):
                 curr_state = self.get_state((i, j))
                 states = []
-                states.append(1 if curr_state == AI_Proj3.CLOSED_CELL else 0)
-                states.append(1 if curr_state == AI_Proj3.TELEPORT_CELL else 0)
                 states.append(1 if (i, j) == bot_pos else 0)
                 states.append(1 if (i, j) == crew_pos else 0)
                 states.append(1 if (i, j) == alien_pos else 0)
+                states.append(1 if curr_state == AI_Proj3.CLOSED_CELL else 0)
+                states.append(1 if curr_state == AI_Proj3.TELEPORT_CELL else 0)
                 cols.extend(states)
 
             rows.extend(cols)
@@ -157,7 +158,6 @@ class Q_BOT(AI_Bonus3.ALIEN_CONFIG):
         self.old_crew_pos = ()
         self.state_1 = self.ship.get_ship_layout(self.local_bot_pos, self.local_crew_pos, self.local_alien_pos)
         self.tensor_1 = torch.from_numpy(self.state_1).float()
-        self.tensor_1 = self.tensor_1.to(torch.device(DEVICE))
         self.state_2 = np.array([])
         self.is_train = True
         self.epsilon = epsilon
@@ -178,7 +178,6 @@ class Q_BOT(AI_Bonus3.ALIEN_CONFIG):
         alien_pos = self.local_alien_pos
         self.state_2 = self.ship.get_ship_layout(bot_pos, crew_pos, alien_pos)
         self.tensor_2 = torch.from_numpy(self.state_2).float()
-        self.tensor_2 = self.tensor_2.to(torch.device(DEVICE))
         with torch.no_grad():
             possibleQs = self.ship.q_model(self.tensor_2)
 
@@ -188,7 +187,6 @@ class Q_BOT(AI_Bonus3.ALIEN_CONFIG):
             self.ship.total_success_moves += 1
 
         output = torch.Tensor([self.best_action]).long()
-        output = output.to(torch.device(DEVICE))
         loss = self.ship.loss_fn(self.q_vals, output)
 
         if IS_DEBUG and (self.total_moves % 200 == 0 or self.local_check):
@@ -213,7 +211,7 @@ class Q_BOT(AI_Bonus3.ALIEN_CONFIG):
 
     def process_q_learn(self):
         self.q_vals = self.ship.q_model(self.tensor_1)
-        self.best_move = self.ship.best_policy_lookup[self.local_bot_pos][self.local_alien_pos][self.local_crew_pos][AI_Proj3.BEST_MOVE]
+        self.best_move = self.ship.best_policy_lookup[self.local_bot_pos][self.local_alien_pos][self.local_crew_pos]
         self.best_action = self.ship.get_action(self.local_bot_pos, self.best_move)
         if random.uniform(0, 1) < self.epsilon:
             self.action_no = np.random.randint(0,9)
@@ -226,7 +224,7 @@ class Q_BOT(AI_Bonus3.ALIEN_CONFIG):
     def move_bot(self):
         self.q_vals = self.ship.q_model(self.tensor_1)
         self.action_no = int(torch.argmax(self.q_vals).item())
-        self.best_move = self.ship.best_policy_lookup[self.local_bot_pos][self.local_alien_pos][self.local_crew_pos][AI_Proj3.BEST_MOVE]
+        self.best_move = self.ship.best_policy_lookup[self.local_bot_pos][self.local_alien_pos][self.local_crew_pos]
         self.best_action = self.ship.get_action(self.local_bot_pos, self.best_move)
         self.make_action()
 
@@ -272,10 +270,13 @@ def t_bot(ship, is_train = True):
         else:
             moves, result = q_bot.test_rescue()
 
-        if result:
+        if result == 1:
             avg_moves.update_min_max(moves)
             avg_moves.s_moves += moves
             avg_moves.success += 1
+        elif result == 2:
+            avg_moves.c_moves += moves
+            avg_moves.caught += 1
         else:
             avg_moves.f_moves += moves
             avg_moves.failure += 1
@@ -290,8 +291,6 @@ def t_bot(ship, is_train = True):
         ship.reset_positions()
 
     # print()
-    avg_moves.get_avg(epochs)
-    print_data(avg_moves)
     return avg_moves
 
 def single_sim(ship):
@@ -299,99 +298,70 @@ def single_sim(ship):
 
     run_simulations.print_header(MAX_TEST)
     for itr in range(run_simulations.TOTAL_CONFIGS):
-        run_simulations.print_data(final_data, itr, MAX_TEST)
+        run_simulations.print_data(final_data[itr], itr, MAX_TEST)
 
 def single_run():
-    q_model = QModel(FULL_GRID_STATE, H_LAYERS, BOT_ACTIONS, F.leaky_relu)
+    q_model = QModel(FULL_GRID_STATE, H_LAYERS, BOT_ACTIONS)
     ship = LEARN_CONFIG(q_model)
     ship.perform_initial_calcs()
-    t_bot(ship)
+    run_simulations.print_data(t_bot(ship), 3, MAX_TRAIN)
     ship.print_losses()
-    t_bot(ship, False)
+    run_simulations.print_data(t_bot(ship, False), 3, MAX_TEST)
     ship.print_losses()
     single_sim(ship)
+    del ship
 
-def train(q_model):
-    if DEVICE == "cuda":
-        torch.cuda.set_device(torch.device('cuda:0'))
-
-    for i in range(int(GENERAL_TRAIN)):
+def train(q_model, result_queue):
+    avg_moves = DETAILS()
+    for i in range(GENERAL_TRAIN):
         ship = LEARN_CONFIG(q_model)
         ship.perform_initial_calcs()
-        t_bot(ship)
+        avg_moves.update(t_bot(ship))
         ship.print_losses()
+    avg_moves.get_avg(GENERAL_TRAIN)
+    result_queue.put(avg_moves)
 
-def test(q_model):
-    if DEVICE == "cuda":
-        torch.cuda.set_device(torch.device('cuda:0'))
-
-    for i in range(int(GENERAL_TEST)):
+def test(q_model, result_queue):
+    avg_moves = DETAILS()
+    for i in range(GENERAL_TEST):
         ship = LEARN_CONFIG(q_model)
         ship.perform_initial_calcs()
-        t_bot(ship, False)
+        avg_moves.update(t_bot(ship, False))
         ship.print_losses()
-
-def print_data(detail):
-    print("%18s %18s %18s %18s %18s %18s %18s %18s %18s %18s" % ("Avg Suc Moves", "Success Rate", "Min Suc. Moves", "Max Suc. Moves", "Avg Caught Moves", "Caught Rate", "Avg Fail Moves", "Failure Rate", "Avg Bot Crew Dist", "Crew Teleport Dist"))
-    print(("%18s %18s %18s %18s %18s %18s %18s %18s %18s %18s" % (detail.s_moves, detail.success, detail.min_success, detail.max_success, detail.c_moves, detail.caught, detail.f_moves, detail.failure, detail.distance, detail.dest_dist)))
+    avg_moves.get_avg(GENERAL_TRAIN)
+    result_queue.put(avg_moves)
 
 def multi_run():
-    if DEVICE == "cuda": # cuda on multiple cores is a nightmare for now...
-        exit(-1)
-
+    processes = []
     q_model = QModel(FULL_GRID_STATE, H_LAYERS, BOT_ACTIONS, F.leaky_relu)
-    if DEVICE == "cuda":
-        q_model = q_model.to(torch.device(DEVICE))
-        q_model.hidden_units = q_model.hidden_units.to(torch.device(DEVICE))
-        for layer in q_model.hidden_units:
-            layer = layer.to(torch.device(DEVICE))
-    else:
-        q_model.share_memory()
+    q_model.share_memory()
+    print("Training data...")
+    detail = DETAILS()
+    result_queue = torch.multiprocessing.Queue()
+    for rank in range(MAX_PROCESS):
+        p = torch.multiprocessing.Process(target=train, args=(q_model, result_queue, ))
+        p.start()
+        processes.append(p)
+    for p in processes:
+        p.join()
+        detail.update(result_queue.get())
+    run_simulations.print_data(detail, 3, MAX_PROCESS)
 
-    if DEVICE != "cuda":
-        processes = []
-        print("Training data...")
-        detail = DETAILS()
-        for rank in range(MAX_PROCESS):
-            p = torch.multiprocessing.Process(target=train, args=(q_model,))
-            p.start()
-            processes.append(p)
-        for p in processes:
-            detail.update(p.join())
-        print_data(detail)
-
-        print("Testing data...")
-        detail = DETAILS()
-        processes.clear()
-        for rank in range(MAX_PROCESS):
-            p = torch.multiprocessing.Process(target=test, args=(q_model,))
-            p.start()
-            processes.append(p)
-        for p in processes:
-            data = p.join()
-            detail.update(data)
-        print_data(detail)
-    else: # DOESN'T WORK...
-        print("Training data...")
-        detail = DETAILS()
-        torch.multiprocessing.spawn(train, args=(q_model, ), nprocs=MAX_PROCESS, join=False)
-        for i in range(MAX_PROCESS):
-            data = torch.multiprocessing.SpawnContext.join()
-            detail.update(data)
-        print_data(detail)
-
-        print("Testing data...")
-        detail = DETAILS()
-        torch.multiprocessing.spawn(test, args=(q_model, ), nprocs=MAX_PROCESS, join=False)
-        for i in range(MAX_PROCESS):
-            data = torch.multiprocessing.SpawnContext.join()
-            detail.update(data)
-        print_data(detail)
+    print("Testing data...")
+    detail = DETAILS()
+    processes.clear()
+    for rank in range(MAX_PROCESS):
+        p = torch.multiprocessing.Process(target=test, args=(q_model, result_queue, ))
+        p.start()
+        processes.append(p)
+    for p in processes:
+        p.join()
+        detail.update(result_queue.get())
+    run_simulations.print_data(detail, 3, MAX_PROCESS)
 
 if __name__ == '__main__':
-    print(DEVICE)
     begin = time()
-    # single_run()
-    multi_run()
+    single_run()
+    # multi_run()
     end = time()
     print(end-begin)

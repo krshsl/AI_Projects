@@ -207,11 +207,7 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
                                 alien_data[alien_pos] = dict()
 
                             bot_policy = alien_data[alien_pos]
-                            if crew_pos not in bot_policy:
-                                bot_policy[crew_pos] = {}
-
-                            bot_policy[crew_pos] = all_policies
-                            bot_policy[crew_pos][AI_Proj3.BEST_MOVE] = action_val
+                            bot_policy[crew_pos] = action_val
                             current_iters += 1
 
             if current_iters == max_iters:
@@ -225,6 +221,18 @@ class ALIEN_SHIP(AI_Proj3.SHIP):
     def reset_positions(self):
         self.open_cells.append(self.alien_pos)
         super(ALIEN_SHIP, self).reset_positions()
+    
+    def reset_static_pos(self, bot_pos):
+        self.open_cells.append(self.alien_pos)
+        super(ALIEN_SHIP, self).reset_static_pos(bot_pos)
+        while(True):
+            self.alien_pos = choice(self.open_cells)
+            if self.alien_pos == self.teleport_cell or self.search_path(self.alien_pos):
+                break
+
+        alien_state = (AI_Proj3.TELEPORT_CELL | ALIEN_CELL) if (self.alien_pos == self.teleport_cell) else ALIEN_CELL
+        self.set_state(self.alien_pos, alien_state)
+        self.open_cells.remove(self.alien_pos)
 
 class ALIEN_CONFIG(AI_Proj3.BOT_CONFIG):
     def __init__(self, ship):
@@ -240,7 +248,7 @@ class ALIEN_CONFIG(AI_Proj3.BOT_CONFIG):
     def move_bot(self):
         bot_movements = self.ship.get_all_moves(self.local_bot_pos, AI_Proj3.OPEN_CELL | AI_Proj3.TELEPORT_CELL, False)
         bot_movements.append(self.local_bot_pos)
-        self.best_move = self.ship.best_policy_lookup[self.local_bot_pos][self.local_alien_pos][self.local_crew_pos][AI_Proj3.BEST_MOVE]
+        self.best_move = self.ship.best_policy_lookup[self.local_bot_pos][self.local_alien_pos][self.local_crew_pos]
         if not self.best_move:
             return
 
@@ -291,4 +299,3 @@ class ALIEN_CONFIG(AI_Proj3.BOT_CONFIG):
 
         self.ship.set_state(next_cell, next_state)
         return is_fin
-

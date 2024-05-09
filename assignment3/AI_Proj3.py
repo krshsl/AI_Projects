@@ -26,7 +26,6 @@ VISUALIZE = False
 # moves constants
 ALL_CREW_MOVES = [(1, 0), (0, 1), (-1, 0), (0, -1)]
 ALL_BOT_MOVES = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
-BEST_MOVE = "best_move"
 
 def get_manhattan_distance(cell_1, cell_2):
     return abs(cell_1[0] - cell_2[0]) + abs(cell_1[1] - cell_2[1])
@@ -399,22 +398,18 @@ class SHIP:
                             self.best_policy_lookup[bot_pos] = {}
 
                         bot_policy = self.best_policy_lookup[bot_pos]
-                        if crew_pos not in bot_policy:
-                            bot_policy[crew_pos] = {}
-
-                        bot_policy[crew_pos] = all_policies
-                        bot_policy[crew_pos][BEST_MOVE] = action_val
+                        bot_policy[crew_pos] = action_val
                         current_iters += 1
 
             if current_iters == max_iters:
                 break
-    
+
     def reset_static_pos(self, bot_pos):
         self.open_cells.append(self.bot_pos)
         self.open_cells.append(self.crew_pos)
         for cell in self.open_cells:
             self.set_state(cell, OPEN_CELL)
-        
+
         self.set_state(self.teleport_cell, TELEPORT_CELL)
 
         self.bot_pos = bot_pos
@@ -430,7 +425,7 @@ class SHIP:
         crew_state = TELEPORT_CELL | CREW_CELL if self.crew_pos == self.teleport_cell else CREW_CELL
         self.set_state(self.crew_pos, crew_state)
         self.open_cells.remove(self.crew_pos)
-        
+
 
 class PARENT_BOT:
     def __init__(self, ship):
@@ -561,7 +556,7 @@ class BOT_CONFIG(PARENT_BOT):
     def move_bot(self):
         bot_movements = self.ship.get_all_moves(self.local_bot_pos, OPEN_CELL | TELEPORT_CELL, False)
         bot_movements.append(self.local_bot_pos)
-        self.best_move = self.ship.best_policy_lookup[self.local_bot_pos][self.local_crew_pos][BEST_MOVE]
+        self.best_move = self.ship.best_policy_lookup[self.local_bot_pos][self.local_crew_pos]
         if not self.best_move:
             return
 
