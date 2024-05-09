@@ -9,14 +9,14 @@ import os
 import shutil
 
 TOTAL_ITERATIONS = 1000 # iterations for same ship layout and different bot/crew positions
-IS_BONUS = False
+IS_BONUS = True
 TOTAL_CONFIGS = 1 if IS_BONUS else 2
 MAX_CORES = cpu_count()
 
-AI_Proj3.GRID_SIZE = 5
+AI_Proj3.GRID_SIZE = 11
 AI_Proj3.VISUALIZE = False
 AI_Proj3.NO_CLOSED_CELLS = False
-AI_Proj3.RAND_CLOSED_CELLS = 1
+AI_Proj3.RAND_CLOSED_CELLS = 10
 AI_Proj3.CONVERGENCE_LIMIT = 1 if IS_BONUS else 1e-4 # Small value to reduce time complexity
 
 GENERALIZED_FOLDER="general_bonus" if IS_BONUS else "general"
@@ -26,8 +26,16 @@ SINGLE_DATA="single.csv"
 LAYOUT_DATA="layout.csv"
 DATA_COLS=["Bot_Pos", "Crew_Pos", "Alien_Pos"] if IS_BONUS else ["Bot_Pos", "Crew_Pos"]
 LAYOUT_COLS=["Closed_Cells", "Wall_Cells"]
-SINGLE_MOVES=1000
-GENERALIZED_SHIPS=80
+SINGLE_MOVES=10000
+GENERALIZED_SHIPS=400
+
+BOT_NAME_LOOKUP = {
+    0: "NO BOT",
+    1: "BOT",
+    2: "BOT LEARNT",
+    3: "ALIEN",
+    4: "ALIEN LEARNT"
+}
 
 class DETAILS:
     def __init__(self):
@@ -121,11 +129,14 @@ def run_sim(args):
 
 def print_header(total_itr = TOTAL_ITERATIONS):
     print("Total iterations performed for layout is", total_itr)
-    print("%3s %18s %18s %18s %18s %18s %18s %18s %18s %18s %18s" % ("No", "Avg Suc Moves", "Success Rate", "Min Suc. Moves", "Max Suc. Moves", "Avg Caught Moves", "Caught Rate", "Avg Fail Moves", "Failure Rate", "Avg Bot Crew Dist", "Crew Teleport Dist"))
+    print("%13s %18s %18s %18s %18s %18s %18s %18s %18s %18s %18s" % ("Name", "Avg Suc Moves", "Success Rate", "Min Suc. Moves", "Max Suc. Moves", "Avg Caught Moves", "Caught Rate", "Avg Fail Moves", "Failure Rate", "Avg Bot Crew Dist", "Crew Teleport Dist"))
 
 def print_data(final_data, itr, total_itr = TOTAL_ITERATIONS):
+    if IS_BONUS and itr == 0:
+        itr = 3
+
     final_data.get_avg(total_itr)
-    print(("%3s %18s %18s %18s %18s %18s %18s %18s %18s %18s %18s" % (itr, final_data.s_moves, final_data.success, final_data.min_success, final_data.max_success, final_data.c_moves, final_data.caught, final_data.f_moves, final_data.failure, final_data.distance, final_data.dest_dist)))
+    print(("%13s %18s %18s %18s %18s %18s %18s %18s %18s %18s %18s" % (BOT_NAME_LOOKUP[itr], final_data.s_moves, final_data.success, final_data.min_success, final_data.max_success, final_data.c_moves, final_data.caught, final_data.f_moves, final_data.failure, final_data.distance, final_data.dest_dist)))
 
 def run_multi_sim():
     core_count = MAX_CORES
@@ -308,11 +319,11 @@ def test_multiple_bot_pos():
 
 if __name__ == '__main__':
     begin = time()
-    test_multiple_bot_pos()
-    single_run()
-    single_sim(TOTAL_ITERATIONS)
-    run_multi_sim()
+    # test_multiple_bot_pos()
+    # single_run()
+    # single_sim(TOTAL_ITERATIONS)
+    # run_multi_sim()
     get_single_data()
-    get_generalized_data()
+    # get_generalized_data()
     end = time()
     print(end-begin)

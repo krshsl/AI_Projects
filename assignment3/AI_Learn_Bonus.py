@@ -24,12 +24,13 @@ GENERAL_TEST = int(108/MAX_PROCESS)
 
 AI_Proj3.GRID_SIZE = 7
 AI_Proj3.TOTAL_ELEMENTS = 5
-AI_Proj3.RAND_CLOSED_CELLS = 5
+AI_Proj3.RAND_CLOSED_CELLS = 3
 AI_Proj3.CONVERGENCE_LIMIT = 1
 FULL_GRID_STATE = AI_Proj3.TOTAL_ELEMENTS*AI_Proj3.GRID_SIZE**2
-LEARNING_RATE=1e-2
+LEARNING_RATE=1e-3
 
-H_LAYERS = [int(FULL_GRID_STATE*2.5), int(FULL_GRID_STATE*1.75), int(FULL_GRID_STATE*2.5)]
+# H_LAYERS = [int(FULL_GRID_STATE*2), int(FULL_GRID_STATE*2)]
+H_LAYERS = [int(FULL_GRID_STATE*2), int(FULL_GRID_STATE/2), int(FULL_GRID_STATE/3), int(FULL_GRID_STATE/3), int(FULL_GRID_STATE/2), int(FULL_GRID_STATE*2)]
 BOT_ACTIONS = 9
 AI_Proj3.VISUALIZE = True
 
@@ -141,9 +142,9 @@ class LEARN_CONFIG(AI_Bonus3.ALIEN_SHIP):
                 states = []
                 states.append(1 if (i, j) == bot_pos else 0)
                 states.append(1 if (i, j) == crew_pos else 0)
-                states.append(1 if (i, j) == alien_pos else 0)
-                states.append(1 if curr_state == AI_Proj3.CLOSED_CELL else 0)
+                states.append(-1 if (i, j) == alien_pos else 0)
                 states.append(1 if curr_state == AI_Proj3.TELEPORT_CELL else 0)
+                states.append(-1 if curr_state == AI_Proj3.CLOSED_CELL else 0)
                 cols.extend(states)
 
             rows.extend(cols)
@@ -214,7 +215,8 @@ class Q_BOT(AI_Bonus3.ALIEN_CONFIG):
         self.best_move = self.ship.best_policy_lookup[self.local_bot_pos][self.local_alien_pos][self.local_crew_pos]
         self.best_action = self.ship.get_action(self.local_bot_pos, self.best_move)
         if random.uniform(0, 1) < self.epsilon:
-            self.action_no = np.random.randint(0,9)
+            self.action_no = self.best_action
+            # self.action_no = np.random.randint(0,9)
         else:
             self.action_no = int(torch.argmax(self.q_vals).item())
 
@@ -301,12 +303,12 @@ def single_sim(ship):
         run_simulations.print_data(final_data[itr], itr, MAX_TEST)
 
 def single_run():
-    q_model = QModel(FULL_GRID_STATE, H_LAYERS, BOT_ACTIONS)
+    q_model = QModel(FULL_GRID_STATE, H_LAYERS, BOT_ACTIONS, F.relu)
     ship = LEARN_CONFIG(q_model)
     ship.perform_initial_calcs()
-    run_simulations.print_data(t_bot(ship), 3, MAX_TRAIN)
+    run_simulations.print_data(t_bot(ship), 4, MAX_TRAIN)
     ship.print_losses()
-    run_simulations.print_data(t_bot(ship, False), 3, MAX_TEST)
+    run_simulations.print_data(t_bot(ship, False), 4, MAX_TEST)
     ship.print_losses()
     single_sim(ship)
     del ship
@@ -333,7 +335,7 @@ def test(q_model, result_queue):
 
 def multi_run():
     processes = []
-    q_model = QModel(FULL_GRID_STATE, H_LAYERS, BOT_ACTIONS, F.leaky_relu)
+    q_model = QModel(FULL_GRID_STATE, H_LAYERS, BOT_ACTIONS)
     q_model.share_memory()
     print("Training data...")
     detail = DETAILS()
@@ -345,7 +347,7 @@ def multi_run():
     for p in processes:
         p.join()
         detail.update(result_queue.get())
-    run_simulations.print_data(detail, 3, MAX_PROCESS)
+    run_simulations.print_data(detail, 4, MAX_PROCESS)
 
     print("Testing data...")
     detail = DETAILS()
@@ -357,7 +359,7 @@ def multi_run():
     for p in processes:
         p.join()
         detail.update(result_queue.get())
-    run_simulations.print_data(detail, 3, MAX_PROCESS)
+    run_simulations.print_data(detail, 4, MAX_PROCESS)
 
 if __name__ == '__main__':
     begin = time()

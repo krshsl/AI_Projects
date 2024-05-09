@@ -1,10 +1,14 @@
 import pandas as pd
 import os
 
+is_bonus = False
 is_general = False
 
 # Define the folder path
-folder_path = 'general' if is_general else 'single'
+if is_bonus:
+    folder_path = 'general_bonus' if is_general else 'single_bonus'
+else:
+    folder_path = 'general' if is_general else 'single'
 data_csv = '_general.csv' if is_general else 'single.csv'
 layout_csv = '_layout.csv' if is_general else 'layout.csv'
 
@@ -13,7 +17,7 @@ files = os.listdir(folder_path)
 
 # Filter files that match the pattern "*_general.csv"
 general_files = [f for f in files if f.endswith(data_csv)]
-
+print(len(general_files))
 # Iterate through each general file
 for general_file in general_files:
     # Extract the corresponding layout file name

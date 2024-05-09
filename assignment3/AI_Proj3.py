@@ -134,7 +134,7 @@ class SHIP:
     def print_ship(self):
         for i in range(self.size):
             for j in range(self.size):
-                # print(("%20s " %self.grid[i][j].no_bot_moves), end=" ")
+                # print(("%6s " % round(self.grid[i][j].no_bot_moves)), end=" ")
                 print("%3s" % self.grid[i][j].state, end=" ")
             print()
         print("len ::", len(self.open_cells))

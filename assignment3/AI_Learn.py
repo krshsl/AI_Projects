@@ -14,12 +14,13 @@ import numpy as np
 from os import path
 import random
 import csv
+from sys import getsizeof
 
 MAX_TEST = 1000
 MAX_TRAIN = 1000
 MAX_PROCESS = int(cpu_count()/2)
-GENERAL_TRAIN = int(96/MAX_PROCESS)
-GENERAL_TEST = int(108/MAX_PROCESS)
+GENERAL_TRAIN = int(5/MAX_PROCESS)
+GENERAL_TEST = int(5/MAX_PROCESS)
 
 AI_Proj3.GRID_SIZE = 11
 AI_Proj3.TOTAL_ELEMENTS = 4
@@ -103,7 +104,6 @@ class LEARN_CONFIG(AI_Proj3.SHIP):
                     self.open_cells.remove(cell)
                     self.set_state(cell, AI_Proj3.CLOSED_CELL)
 
-
         self.set_teleport()
         self.place_players()
 
@@ -147,9 +147,8 @@ class LEARN_CONFIG(AI_Proj3.SHIP):
                     states = []
                     states.append(1 if (i, j) == bot_pos else 0)
                     states.append(1 if (i, j) == crew_pos else 0)
-                    states.append(1 if curr_state == AI_Proj3.CLOSED_CELL else 0)
                     states.append(1 if curr_state == AI_Proj3.TELEPORT_CELL else 0)
-                    # states.append(1 if (curr_state == AI_Proj3.OPEN_CELL or curr_state == AI_Proj3.TELEPORT_CELL) else 0)
+                    states.append(1 if curr_state == AI_Proj3.CLOSED_CELL else 0)
                     cols.extend(states)
 
                     # cols.append(curr_state if curr_state & (AI_Proj3.BOT_CELL | AI_Proj3.OPEN_CELL | AI_Proj3.CREW_CELL) else 0)
@@ -337,11 +336,13 @@ def store_ship(ship):
 
     with open("values.csv", 'w', newline='') as csvfile:
         values = csv.writer(csvfile)
-        values.writerow(['Bot_Pos', 'Crew_Pos', 'Move', 'Action'])
+        values.writerow(['Bot_Pos', 'Crew_Pos', 'Move', 'Action', 'Time'])
         for bot_pos in ship.best_policy_lookup:
             for crew_pos in ship.best_policy_lookup[bot_pos]:
                 move = ship.best_policy_lookup[bot_pos][crew_pos]
                 action = ship.get_action(bot_pos, move)
+                # time_step = ship.time_lookup[bot_pos[0]][bot_pos[1]][crew_pos[0]][crew_pos[1]]
+                # values.writerow([bot_pos, crew_pos, move, action, time_step])
                 values.writerow([bot_pos, crew_pos, move, action])
 
 def test_new():
@@ -349,8 +350,9 @@ def test_new():
     ship = LEARN_CONFIG(q_model)
     ship.perform_initial_calcs()
     store_ship(ship)
+    ship.print_ship()
     del ship
-    ship = LEARN_CONFIG(False, True)
+    ship = LEARN_CONFIG(q_model, True)
     ship.import_ship()
     ship.train_model()
     ship.perform_initial_calcs()
@@ -366,27 +368,38 @@ def single_run():
     run_simulations.print_data(t_bot(ship, False), 2, MAX_TEST)
     ship.print_losses()
     single_sim(ship)
+    import pickle
+    model_size = pickle.dumps(model)
+    print(f"Size of best policy::{getsizeof(ship.best_policy_lookup)}, size of model::{getsizeof(model_size)}")
     del ship
 
 def train(q_model, result_queue):
     avg_moves = DETAILS()
+    lookup_sizes = 0
+    losses = 0
     for i in range(GENERAL_TRAIN):
         ship = LEARN_CONFIG(q_model)
         ship.perform_initial_calcs()
         avg_moves.update(t_bot(ship))
+        losses += (ship.total_failure_moves/(ship.total_failure_moves+ship.total_success_moves))
         ship.print_losses()
-    avg_moves.get_avg(GENERAL_TRAIN)
-    result_queue.put(avg_moves)
+        lookup_sizes += getsizeof(ship.best_policy_lookup)
+    
+    result_queue.put((avg_moves, lookup_sizes, losses))
 
 def test(q_model, result_queue):
     avg_moves = DETAILS()
+    lookup_sizes = 0
+    losses = 0
     for i in range(GENERAL_TEST):
         ship = LEARN_CONFIG(q_model)
         ship.perform_initial_calcs()
+        losses += (ship.total_failure_moves/(ship.total_failure_moves+ship.total_success_moves))
         avg_moves.update(t_bot(ship, False))
         ship.print_losses()
-    avg_moves.get_avg(GENERAL_TRAIN)
-    result_queue.put(avg_moves)
+        lookup_sizes += getsizeof(ship.best_policy_lookup)
+    
+    result_queue.put((avg_moves, lookup_sizes, losses))
 
 def multi_run():
     processes = []
@@ -395,26 +408,43 @@ def multi_run():
     print("Training data...")
     detail = DETAILS()
     result_queue = torch.multiprocessing.Queue()
+    losses = lookup_sizes = 0
     for rank in range(MAX_PROCESS):
         p = torch.multiprocessing.Process(target=train, args=(q_model, result_queue, ))
         p.start()
         processes.append(p)
     for p in processes:
         p.join()
-        detail.update(result_queue.get())
-    run_simulations.print_data(detail, 2, MAX_PROCESS)
+        data, lookup, loss = result_queue.get()
+        detail.update(data)
+        lookup_sizes += lookup
+        losses += loss
+    lookup_sizes /= (MAX_PROCESS*GENERAL_TRAIN)
+    losses /= (MAX_PROCESS*GENERAL_TRAIN)
+    detail.lookup_size = getsizeof(ship.best_policy_lookup)
+    print("Training data avg lookup size::", lookup_sizes)
+    run_simulations.print_data(detail, 2, MAX_PROCESS*GENERAL_TRAIN*MAX_TRAIN)
 
     print("Testing data...")
     detail = DETAILS()
     processes.clear()
+    losses = lookup_sizes = 0
     for rank in range(MAX_PROCESS):
         p = torch.multiprocessing.Process(target=test, args=(q_model, result_queue, ))
         p.start()
         processes.append(p)
     for p in processes:
         p.join()
-        detail.update(result_queue.get())
-    run_simulations.print_data(detail, 2, MAX_PROCESS)
+        data, lookup, loss = result_queue.get()
+        detail.update(data)
+        lookup_sizes += lookup
+        losses += loss
+    lookup_sizes /= (MAX_PROCESS*GENERAL_TEST)
+    losses /= (MAX_PROCESS*GENERAL_TEST)
+    import pickle
+    model_size = pickle.dumps(model)
+    print("Training data avg lookup size vs model size :: ", lookup_sizes, getsizeof(model_size))
+    run_simulations.print_data(detail, 2, MAX_PROCESS*GENERAL_TEST*MAX_TEST)
 
 if __name__ == '__main__':
     begin = time()
